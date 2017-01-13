@@ -1,0 +1,28 @@
+message Header {
+    enum Type {
+        HELLO = 0;
+
+        INSTALL_REQUEST = 1;
+        INSTALL_REPLY = 2;
+
+        TABLES_LIST_REQUEST = 3;
+        TABLES_LIST_REPLY = 4;
+        TABLE_LIST_REQUEST = 5;
+        TABLE_LIST_REPLY = 6;
+
+        TABLE_ENTRY_GET_REQUEST = 7;
+        TABLE_ENTRY_GET_REPLY = 8;
+        TABLE_ENTRY_INSERT_REQUEST = 9;
+        TABLE_ENTRY_INSERT_REPLY = 10;
+        TABLE_ENTRY_DELETE_REQUEST = 11;
+        TABLE_ENTRY_DELETE_REPLY = 12;
+
+        PACKET_IN = 13;
+        PACKET_OUT = 14;
+
+        NOTIFY = 15;
+    }
+
+    required fixed32 type = 1;
+    required fixed32 length = 2;
+}

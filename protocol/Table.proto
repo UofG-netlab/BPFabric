@@ -1,0 +1,66 @@
+message TablesListRequest {}
+
+message TablesListReply {
+    repeated TableDefinition entries = 1;
+}
+
+message TableDefinition {
+    enum TableType {
+        UNSPEC = 0;
+        HASH   = 1;
+        ARRAY  = 2;
+    }
+
+    required string table_name    = 1;
+    required TableType table_type = 2;
+    required uint32 key_size      = 3;
+    required uint32 value_size    = 4;
+    required uint32 max_entries   = 5;
+}
+
+message TableListRequest {
+    required string table_name = 1;
+}
+
+enum TableStatus {
+    SUCCESS = 0;
+    TABLE_NOT_FOUND = 1;
+    ENTRY_NOT_FOUND = 2;
+}
+
+message TableListReply {
+    required TableStatus status = 1;
+    optional TableDefinition entry = 2;
+    optional uint32 n_items = 3;
+    optional bytes items = 4;
+}
+
+message TableEntryGetRequest {
+    required string table_name = 1;
+    required bytes key = 2;
+}
+
+message TableEntryGetReply {
+    required TableStatus status = 1;
+    optional bytes key = 2;
+    optional bytes value = 3;
+}
+
+message TableEntryInsertRequest {
+    required string table_name = 1;
+    required bytes key = 2;
+    required bytes value = 3;
+}
+
+message TableEntryInsertReply {
+    required TableStatus status = 1;
+}
+
+message TableEntryDeleteRequest {
+    required string table_name = 1;
+    required bytes key = 2;
+}
+
+message TableEntryDeleteReply {
+    required TableStatus status = 1;
+}

@@ -1,0 +1,27 @@
+strict digraph  {
+	0	 [code="['mov r6, r1', 'mov r3, r10', 'add r3, 0xfffffff8', 'lddw r1, 0x0', 'mov r2, r6', 'call 0x1', 'ldxb r3, [r6+13]', 'lsh r3, 0x8', '\
+ldxb r1, [r6+12]', 'or r3, r1', 'ldxdw r2, [r10-8]', 'ldxdw r1, [r2]', 'add r1, r3', 'stxdw [r2], r1', 'ldxdw r3, [r2+8]', 'add \
+r3, 0x1', 'stxdw [r2+8], r3', 'ldxb r3, [r6+5]', 'lsh r3, 0x8', 'ldxb r4, [r6+4]', 'or r3, r4', 'ldxb r4, [r6+6]', 'ldxb r5, [r6+\
+7]', 'lsh r5, 0x8', 'or r5, r4', 'lsh r5, 0x10', 'or r5, r3', 'ldxw r3, [r2+24]', 'sub r5, r3', 'lsh r5, 0x20', 'rsh r5, 0x20', '\
+mov r3, 0x6', 'jgt r3, r5, +36']"];
+	272	 [code="['ldxdw r3, [r2+16]', 'sub r1, r3', 'lsh r3, 0x3', 'add r1, r3', 'rsh r1, 0x3', 'stxdw [r2+16], r1', 'ldxb r3, [r6+1]', 'lsh r3, \
+0x8', 'ldxb r1, [r6]', 'or r3, r1', 'ldxb r1, [r6+3]', 'lsh r1, 0x8', 'ldxb r4, [r6+2]', 'or r1, r4', 'lsh r1, 0x10', 'or r1, r3', '\
+mov r3, 0x20', 'call 0x1f', 'ldxb r1, [r6+5]', 'lsh r1, 0x8', 'ldxb r2, [r6+4]', 'or r1, r2', 'ldxb r2, [r6+6]', 'ldxb r3, [r6+7]', '\
+lsh r3, 0x8', 'or r3, r2', 'lsh r3, 0x10', 'or r3, r1', 'ldxdw r1, [r10-8]', 'stxw [r1+24], r3', 'mov r2, 0x0', 'stxdw [r1+8], r2', '\
+stxdw [r1], r2', 'ldxw r2, [r1+28]', 'add r2, 0x1']"];
+	0 -> 272;
+	552	 [code="['stxw [r1+28], r2', 'ldxb r1, [r6+20]', 'lsh r1, 0x38', 'arsh r1, 0x38', 'mov r8, 0x0', 'jsgt r8, r1, +7']"];
+	0 -> 552;
+	704	 [code="['add r6, 0xe', 'mov r3, r10', 'add r3, 0xfffffff0', 'lddw r1, 0x0', 'mov r2, r6', 'call 0x1', 'lsh r0, 0x20', 'rsh r0, 0x20', '\
+lddw r1, 0xffffffff', 'jeq r0, r1, +2']"];
+	808	 [code="['ldxw r7, [r1]', 'mov r0, r7', 'exit']"];
+	704 -> 808;
+	800	 [code="['ldxdw r1, [r10-16]']"];
+	704 -> 800;
+	648	 [code="['call 0x2', 'lddw r7, 0xfffffffd', 'ldxb r1, [r6+14]', 'lsh r1, 0x38', 'arsh r1, 0x38', 'jsgt r8, r1, +14']"];
+	648 -> 704;
+	648 -> 808;
+	552 -> 648;
+	600	 [code="['mov r2, r6', 'add r2, 0x14', 'lddw r1, 0x0', 'mov r3, r6', 'mov r4, 0x0']"];
+	552 -> 600;
+}

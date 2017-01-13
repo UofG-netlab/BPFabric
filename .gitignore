@@ -1,0 +1,14 @@
+*.pyc
+*.o
+*.o.d
+*.o.cmd
+*.a
+protocol/src/c
+protocol/src/python
+dpdkswitch/build
+examples/*.bin
+examples/*.asm
+
+bpfmap/test_arraymap
+bpfmap/test_bpfmap
+bpfmap/test_hashmap

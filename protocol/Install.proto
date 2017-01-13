@@ -1,0 +1,5 @@
+message InstallRequest {
+    required bytes elf = 1;
+}
+
+message InstallReply {}

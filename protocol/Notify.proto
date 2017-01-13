@@ -1,0 +1,4 @@
+message Notify {
+    required uint32 id = 1;
+    required bytes data = 2;
+}

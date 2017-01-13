@@ -1,0 +1,8 @@
+message PacketIn {
+    required bytes data = 1;
+}
+
+message PacketOut {
+    required bytes data = 1;
+    required uint64 out_port = 2;
+}
