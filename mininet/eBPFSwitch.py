@@ -1,6 +1,7 @@
 from mininet.net import Mininet
 from mininet.node import Switch, Host
 from mininet.util import errRun
+from mininet.link import TCIntf
 import subprocess
 
 from time import sleep
@@ -9,23 +10,19 @@ class eBPFHost(Host):
     def config(self, **params):
         r = super(Host, self).config(**params)
 
-        self.defaultIntf().rename("eth0")
-
+        # Disable offloading
         for off in ["rx", "tx", "sg"]:
-            cmd = "/sbin/ethtool --offload eth0 %s off" % off
+            cmd = "/sbin/ethtool --offload {} {} off".format(self.defaultIntf(), off)
             self.cmd(cmd)
-        self.setDefaultRoute('dev eth0') #Is that really the best way to do it?
+        self.setDefaultRoute('dev {}'.format(self.defaultIntf())) #Is that really the best way to do it?
 
         return r
 
 class eBPFSwitch(Switch):
     dpid = 1
 
-    def __init__(self, name, switch_path=None, dpid=None, **kwargs):
+    def __init__(self, name, switch_path='softswitch', dpid=None, **kwargs):
         Switch.__init__(self, name, **kwargs)
-
-        if not switch_path:
-            raise ValueError("switch_path must be defined")
 
         self.switch_path = switch_path
 
