@@ -18,7 +18,7 @@ uint64_t prog(struct packet *pkt)
         bpf_map_update_elem(&inports, pkt->eth.h_source, &pkt->metadata.in_port, 0);
     }
 
-    // Flood of the destination is broadcast or multicast
+    // Flood if the destination is broadcast or multicast
     if (pkt->eth.h_dest[0] & 1) {
         return FLOOD;
     }
