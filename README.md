@@ -6,14 +6,8 @@ A programmable dataplane using the eBPF instruction set.
 ## Dependencies
 Tested and working with
   * Ubuntu 16.04.1 LTS - kernel 4.4.0-31-generic
-
   * clang-3.9
 
-
-##
-```
-    sudo apt-get install libc6-dev-i386
-```
 
 ## Examples
 ### Learning Switch
@@ -132,6 +126,10 @@ Installing the eBPF ELF
 Inserting entry in switch 2  000400000000 1
 [...]
 ```
+
+## Building BPFabric for OpenWRT routers
+
+More on the wiki at https://github.com/UofG-netlab/BPFabric/wiki/OpenWRT
 
 ## Issues
   * Error while compiling the examples `/usr/include/linux/types.h:4:10: fatal error: 'asm/types.h' file not found`
