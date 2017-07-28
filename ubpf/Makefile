@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CFLAGS := -Wall -Werror -Iinc -I../bpfmap -O2 -g
+CFLAGS := -Wall -Iinc -I../bpfmap -O2 -g
 LDLIBS := -lm
 
 ifeq ($(COVERAGE),1)
@@ -25,7 +25,7 @@ CFLAGS += -fsanitize=address
 LDFLAGS += -fsanitize=address
 endif
 
-all: libubpf.a test
+all: libubpf.a
 
 ubpf_jit_x86_64.o: ubpf_jit_x86_64.c ubpf_jit_x86_64.h
 

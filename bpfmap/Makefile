@@ -17,7 +17,7 @@ libbpfmap.a: $(bpfmap_mods:%=%.o)
 	$(AR) r '$@' $(bpfmap_mods:%=%.o)
 
 clean::
-	$(RM) *.o */*.o
+	$(RM) *.o */*.o *.a
 
 install:: install-headers install-libraries
 
@@ -28,13 +28,3 @@ install-headers::
 install-libraries::
 	$(INSTALL) -m 755 -d $(PREFIX)/lib
 	$(INSTALL) -m 644 libbpfmap.a $(PREFIX)/lib
-
-
-# bpfmap.o: bpfmap.c arraymap.c hashtab.c libghthash/hash_functions.c libghthash/hash_table.c
-# 	gcc -c bpfmap.c arraymap.c hashtab.c libghthash/hash_functions.c libghthash/hash_table.c
-
-# bpfmap.a: bpfmap.o
-# 	ar cr bpfmap.a bpfmap.o arraymap.o hashtab.o libghthash/hash_functions.o libghthash/hash_table.o
-
-# clean:
-# 	rm -f *.o

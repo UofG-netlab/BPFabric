@@ -1,7 +1,9 @@
-all: bpfmap-src ubpf-src protocol-src agent-src switch dpdkswitch-src examples-src
+TARGETS:=switch examples-src
+ifdef RTE_SDK
+	TARGETS:=dpdkswitch-src
+endif
 
-ubpf-src:
-	cd ubpf && $(MAKE)
+all: $(TARGETS)
 
 bpfmap-src:
 	cd bpfmap && $(MAKE)
@@ -9,7 +11,10 @@ bpfmap-src:
 protocol-src:
 	cd protocol && $(MAKE)
 
-agent-src:
+ubpf-src: bpfmap-src
+	cd ubpf && $(MAKE)
+
+agent-src: protocol-src bpfmap-src ubpf-src
 	cd agent && $(MAKE)
 
 switch: agent-src
@@ -28,4 +33,6 @@ clean:
 	cd protocol && $(MAKE) clean
 	cd softswitch && $(MAKE) clean
 	cd examples && $(MAKE) clean
-	cd dpdkswitch && $(MAKE) clean
+ifdef RTE_SDK
+  cd dpdkswitch && $(MAKE) clean
+endif
