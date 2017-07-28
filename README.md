@@ -133,6 +133,11 @@ Inserting entry in switch 2  000400000000 1
 [...]
 ```
 
+## Issues
+  * Error while compiling the examples `/usr/include/linux/types.h:4:10: fatal error: 'asm/types.h' file not found`
+    * `sudo ln -s /usr/include/x86_64-linux-gnu/asm/ /usr/include/asm`
+    * `sudo apt-get install g++-multilib`
+
 ## Debugging
 ### Disassembling eBPF
 ```zsh
