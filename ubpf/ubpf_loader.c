@@ -89,10 +89,11 @@ ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errms
         goto error;
     }
 
-    if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB) {
-        *errmsg = ubpf_error("wrong byte order");
-        goto error;
-    }
+//    TODO CHECK: This check assumes the host platform and the eBPF endianess architecture match
+//    if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB) {
+//        *errmsg = ubpf_error("wrong byte order: got %d expected %d", ehdr->e_ident[EI_DATA], ELFDATA2LSB);
+//        goto error;
+//    }
 
     if (ehdr->e_ident[EI_VERSION] != 1) {
         *errmsg = ubpf_error("wrong version");
@@ -333,7 +334,7 @@ ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errms
                     goto error;
                 }
 
-                uint64_t address = (uint64_t)rodata->data + sym->st_value;
+                uint64_t address = (uintptr_t)rodata->data + sym->st_value;
                 insns[insn_idx].imm = address;
                 insns[insn_idx+1].imm = address >> 32;
             }

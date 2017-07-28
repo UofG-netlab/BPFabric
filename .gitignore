@@ -3,12 +3,26 @@
 *.o.d
 *.o.cmd
 *.a
+
+softswitch/softswitch
+
 protocol/src/c
 protocol/src/python
+
 dpdkswitch/build
+
 examples/*.bin
 examples/*.asm
 
 bpfmap/test_arraymap
 bpfmap/test_bpfmap
 bpfmap/test_hashmap
+
+
+# OpenWRT package files
+ipkg-*
+.built
+.configured_yyyyyyyy
+.prepared
+.quilt_checked
+.source_dir

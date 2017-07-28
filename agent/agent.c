@@ -79,6 +79,14 @@ int recv_hello(void *buffer, Header *header)
     return len;
 }
 
+#if !__x86_64__
+// Same prototype for JIT and interpretation
+uint64_t ebpf_exec(void* mem, size_t mem_len)
+{
+    return ubpf_exec(vm, mem, mem_len);
+}
+#endif
+
 int recv_install(void *buffer, Header *header)
 {
     InstallRequest *request;
@@ -96,7 +104,12 @@ int recv_install(void *buffer, Header *header)
         free(errmsg);
     }
 
-    ubpf_jit_fn ebpfprog = ubpf_compile(vm, &errmsg);
+    // On x86-64 architectures use the JIT compiler, otherwise fallback to the interpreter
+    #if __x86_64__
+        ubpf_jit_fn ebpfprog = ubpf_compile(vm, &errmsg);
+    #else
+        ubpf_jit_fn ebpfprog = ebpf_exec;
+    #endif
 
     if (ebpfprog == NULL) {
         printf("Error JIT %s\n", errmsg);
@@ -484,6 +497,31 @@ uint64_t bpf_notify(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t
     return 0;
 }
 
+uint64_t bpf_lookup(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
+{
+    int map = (int)r1;
+    uint64_t *key = (uint64_t *)r2;
+    uint64_t *store = (uint64_t *)r3;
+
+    uintptr_t value;
+
+    uint64_t ret = bpf_lookup_elem(map, key, &value);
+
+    *store = (uint64_t)value;
+
+    return ret;
+}
+
+uint64_t bpf_update(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
+{
+    return bpf_update_elem(r1, r2, r3, r4);
+}
+
+uint64_t bpf_delete(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
+{
+    return bpf_delete_elem(r1, r2);
+}
+
 void *agent_task()
 {
     //
@@ -508,9 +546,9 @@ void *agent_task()
     vm = ubpf_create();
 
     // Register the map functions
-    ubpf_register(vm, 1, "bpf_map_lookup_elem", bpf_lookup_elem);
-    ubpf_register(vm, 2, "bpf_map_update_elem", bpf_update_elem);
-    ubpf_register(vm, 3, "bpf_map_delete_elem", bpf_delete_elem);
+    ubpf_register(vm, 1, "bpf_map_lookup_elem", bpf_lookup);
+    ubpf_register(vm, 2, "bpf_map_update_elem", bpf_update);
+    ubpf_register(vm, 3, "bpf_map_delete_elem", bpf_delete);
     ubpf_register(vm, 31, "bpf_notify", bpf_notify);
     ubpf_register(vm, 32, "bpf_debug", bpf_debug);
 

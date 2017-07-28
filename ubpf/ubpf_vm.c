@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <sys/mman.h>
+#include <endian.h>
 #include "ubpf_int.h"
 
 #include "bpfmap.h"
@@ -30,7 +31,6 @@
 #define MAX_EXT_FUNCS 64
 
 static bool validate(const struct ubpf_vm *vm, const struct ebpf_inst *insts, uint32_t num_insts, char **errmsg);
-static bool bounds_check(void *addr, int size, const char *type, uint16_t cur_pc, void *mem, size_t mem_len, void *stack);
 
 struct ubpf_vm *
 ubpf_create(void)
@@ -143,7 +143,7 @@ ubpf_exec(const struct ubpf_vm *vm, void *mem, size_t mem_len)
 {
     uint16_t pc = 0;
     const struct ebpf_inst *insts = vm->insts;
-    uint64_t reg[16];
+    uint64_t reg[16] = {0};
     uint64_t stack[(STACK_SIZE+7)/8];
 
     if (!insts) {
@@ -376,18 +376,8 @@ ubpf_exec(const struct ubpf_vm *vm, void *mem, size_t mem_len)
          *
          * Needed since we don't have a verifier yet.
          */
-#define BOUNDS_CHECK_LOAD(size) \
-    do { \
-        if (!bounds_check((void *)reg[inst.src] + inst.offset, size, "load", cur_pc, mem, mem_len, stack)) { \
-            return UINT64_MAX; \
-        } \
-    } while (0)
-#define BOUNDS_CHECK_STORE(size) \
-    do { \
-        if (!bounds_check((void *)reg[inst.dst] + inst.offset, size, "store", cur_pc, mem, mem_len, stack)) { \
-            return UINT64_MAX; \
-        } \
-    } while (0)
+#define BOUNDS_CHECK_LOAD(size)
+#define BOUNDS_CHECK_STORE(size)
 
         case EBPF_OP_LDXW:
             BOUNDS_CHECK_LOAD(4);
@@ -698,22 +688,6 @@ validate(const struct ubpf_vm *vm, const struct ebpf_inst *insts, uint32_t num_i
     }
 
     return true;
-}
-
-static bool
-bounds_check(void *addr, int size, const char *type, uint16_t cur_pc, void *mem, size_t mem_len, void *stack)
-{
-    if (mem && (addr >= mem && (addr + size) <= (mem + mem_len))) {
-        /* Context access */
-        return true;
-    } else if (addr >= stack && (addr + size) <= (stack + STACK_SIZE)) {
-        /* Stack access */
-        return true;
-    } else {
-        fprintf(stderr, "uBPF error: out of bounds memory %s at PC %u, addr %p, size %d\n", type, cur_pc, addr, size);
-        fprintf(stderr, "mem %p/%zd stack %p/%d\n", mem, mem_len, stack, STACK_SIZE);
-        return false;
-    }
 }
 
 char *
