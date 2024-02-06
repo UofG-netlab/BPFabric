@@ -144,6 +144,10 @@ ubpf/bin/ubpf-disassembler program.bin program.asm
 cat program.asm
 ```
 
+## Known Issues
+
+- String relocation is not working properly. The symbol in the ELF file is not containing the offset to the string table preventing the relocation of the string.
+
 ## Authors
   * Simon Jouet (simon.jouet@glasgow.ac.uk)
   * Dimitrios Pezaros (dimitrios.pezaros@glasgow.ac.uk)

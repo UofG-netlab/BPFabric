@@ -463,8 +463,8 @@ int agent_packetin(void *pkt, int len)
 
 uint64_t bpf_debug(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
 {
-    char *s = (char *)r1;
-    printf("BPF_DEBUG: %s\n", s);
+    printf("debug: %lu\n", r1);
+
     return 0;
 }
 
