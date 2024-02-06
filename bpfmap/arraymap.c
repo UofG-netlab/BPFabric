@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stddef.h>
 
 #include "arraymap.h"
 
@@ -13,7 +14,8 @@ struct bpf_map *array_map_alloc(union bpf_attr *attr)
 
     /* check sanity of attributes */
     if (attr->max_entries == 0 || attr->key_size != 4 ||
-        attr->value_size == 0 || attr->map_flags) {
+        attr->value_size == 0 || attr->map_flags)
+    {
         errno = EINVAL;
         return NULL;
     }
@@ -22,7 +24,8 @@ struct bpf_map *array_map_alloc(union bpf_attr *attr)
 
     /* allocate all map elements and zero-initialize them */
     array = calloc(attr->max_entries * elem_size, sizeof(*array));
-    if (!array) {
+    if (!array)
+    {
         errno = ENOMEM;
         return NULL;
     }
@@ -61,12 +64,14 @@ int array_map_get_next_key(struct bpf_map *map, void *key, void *next_key)
     uint32_t index = *(uint32_t *)key;
     uint32_t *next = (uint32_t *)next_key;
 
-    if (index >= array->map.max_entries) {
+    if (index >= array->map.max_entries)
+    {
         *next = 0;
         return 0;
     }
 
-    if (index == array->map.max_entries - 1) {
+    if (index == array->map.max_entries - 1)
+    {
         errno = ENOENT;
         return -1;
     }
@@ -76,24 +81,27 @@ int array_map_get_next_key(struct bpf_map *map, void *key, void *next_key)
 }
 
 int array_map_update_elem(struct bpf_map *map, void *key, void *value,
-                 uint64_t map_flags)
+                          uint64_t map_flags)
 {
     struct bpf_array *array = container_of(map, struct bpf_array, map);
     uint32_t index = *(uint32_t *)key;
 
-    if (map_flags > BPF_EXIST) {
+    if (map_flags > BPF_EXIST)
+    {
         /* unknown flags */
         errno = EINVAL;
         return -1;
     }
 
-    if (index >= array->map.max_entries) {
+    if (index >= array->map.max_entries)
+    {
         /* all elements were pre-allocated, cannot insert a new one */
         errno = E2BIG;
         return -1;
     }
 
-    if (map_flags == BPF_NOEXIST) {
+    if (map_flags == BPF_NOEXIST)
+    {
         /* all elements already exist */
         errno = EEXIST;
         return -1;

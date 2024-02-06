@@ -4,14 +4,14 @@
 #include <stdint.h>
 
 /* flags for BPF_MAP_UPDATE_ELEM command */
-#define BPF_ANY         0 /* create new element or update existing */
-#define BPF_NOEXIST     1 /* create new element if it didn't exist */
-#define BPF_EXIST       2 /* update existing element */
+#define BPF_ANY 0     /* create new element or update existing */
+#define BPF_NOEXIST 1 /* create new element if it didn't exist */
+#define BPF_EXIST 2   /* update existing element */
 
-#define BPF_F_NO_PREALLOC       (1U << 0)
+#define BPF_F_NO_PREALLOC (1U << 0)
 
 #define __round_mask(x, y) ((__typeof__(x))((y)-1))
-#define round_up(x, y) ((((x)-1) | __round_mask(x, y))+1)
+#define round_up(x, y) ((((x)-1) | __round_mask(x, y)) + 1)
 #define round_down(x, y) ((x) & ~__round_mask(x, y))
 
 /**
@@ -23,37 +23,43 @@
  */
 #define container_of(ptr, type, member) ({                      \
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
+        (type *)( (char *)__mptr - offsetof(type,member) ); })
 
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+// #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 
-enum bpf_map_type {
+enum bpf_map_type
+{
     BPF_MAP_TYPE_UNSPEC,
     BPF_MAP_TYPE_HASH,
     BPF_MAP_TYPE_ARRAY,
 };
 
-union bpf_attr {
-    struct { /* anonymous struct used by BPF_MAP_CREATE command */
-        uint32_t    map_type;    /* one of enum bpf_map_type */
-        uint32_t    key_size;    /* size of key in bytes */
-        uint32_t    value_size;    /* size of value in bytes */
-        uint32_t    max_entries;    /* max number of entries in a map */
-        uint32_t    map_flags;    /* prealloc or not */
+union bpf_attr
+{
+    struct
+    {                         /* anonymous struct used by BPF_MAP_CREATE command */
+        uint32_t map_type;    /* one of enum bpf_map_type */
+        uint32_t key_size;    /* size of key in bytes */
+        uint32_t value_size;  /* size of value in bytes */
+        uint32_t max_entries; /* max number of entries in a map */
+        uint32_t map_flags;   /* prealloc or not */
     };
 
-    struct { /* anonymous struct used by BPF_MAP_*_ELEM commands */
-        uint32_t        map_fd;
-        uint64_t    key;
-        union {
+    struct
+    { /* anonymous struct used by BPF_MAP_*_ELEM commands */
+        uint32_t map_fd;
+        uint64_t key;
+        union
+        {
             uint64_t value;
             uint64_t next_key;
         };
-        uint64_t        flags;
+        uint64_t flags;
     };
 } __attribute__((aligned(8)));
 
-struct bpf_map_ops {
+struct bpf_map_ops
+{
     struct bpf_map *(*map_alloc)(union bpf_attr *attr);
     void (*map_release)(struct bpf_map *map);
     void (*map_free)(struct bpf_map *map);
@@ -64,7 +70,8 @@ struct bpf_map_ops {
     int (*map_delete_elem)(struct bpf_map *map, void *key);
 };
 
-struct bpf_map {
+struct bpf_map
+{
     // atomic_t refcnt;
     enum bpf_map_type map_type;
     uint32_t key_size;
@@ -78,12 +85,13 @@ struct bpf_map {
     // atomic_t usercnt;
 };
 
-
-struct bpf_array {
+struct bpf_array
+{
     struct bpf_map map;
     uint32_t elem_size;
 
-    union {
+    union
+    {
         char value[0] __attribute__((aligned(8)));
         void *ptrs[0] __attribute__((aligned(8)));
     };
