@@ -6,7 +6,7 @@ TAR = $(SRC:.c=.o)
 all: $(TAR)
 
 %.o: %.c
-	clang-3.9 -O2 -target bpf -I ../includes -c $< -o $@
+	clang -O2 -target bpf -I ../includes -c $< -o $@
 
 clean:
 	rm -f $(TAR)
