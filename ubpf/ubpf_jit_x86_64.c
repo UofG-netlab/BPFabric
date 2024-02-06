@@ -1,5 +1,6 @@
 /*
  * Copyright 2015 Big Switch Networks, Inc
+ * Copyright 2017 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +27,10 @@
 #include "ubpf_int.h"
 #include "ubpf_jit_x86_64.h"
 
+#if !defined(_countof)
+#define _countof(array) (sizeof(array) / sizeof(array[0]))
+#endif
+
 /* Special values for target_pc in struct jump */
 #define TARGET_PC_EXIT -1
 #define TARGET_PC_DIV_BY_ZERO -2
@@ -33,6 +38,37 @@
 static void muldivmod(struct jit_state *state, uint16_t pc, uint8_t opcode, int src, int dst, int32_t imm);
 
 #define REGISTER_MAP_SIZE 11
+
+/*
+ * There are two common x86-64 calling conventions, as discussed at
+ * https://en.wikipedia.org/wiki/X86_calling_conventions#x86-64_calling_conventions
+ */
+
+#if defined(_WIN32)
+static int platform_nonvolatile_registers[] = {
+    RBP, RBX, RDI, RSI, R12, R13, R14, R15};
+static int platform_parameter_registers[] = {
+    RCX, RDX, R8, R9};
+#define RCX_ALT R15
+static int register_map[REGISTER_MAP_SIZE] = {
+    RAX,
+    R15,
+    RDX,
+    R8,
+    R9,
+    R10,
+    R11,
+    R12,
+    R13,
+    R14,
+    RBP,
+};
+#else
+#define RCX_ALT R9
+static int platform_nonvolatile_registers[] = {
+    RBP, RBX, R13, R14, R15};
+static int platform_parameter_registers[] = {
+    RDI, RSI, RDX, RCX, R8, R9};
 static int register_map[REGISTER_MAP_SIZE] = {
     RAX,
     RDI,
@@ -46,6 +82,7 @@ static int register_map[REGISTER_MAP_SIZE] = {
     R15,
     RBP,
 };
+#endif
 
 /* Return the x86 register for the given eBPF register */
 static int
@@ -56,21 +93,25 @@ map_register(int r)
 }
 
 /* For testing, this changes the mapping between x86 and eBPF registers */
-void
-ubpf_set_register_offset(int x)
+void ubpf_set_register_offset(int x)
 {
     int i;
-    if (x < REGISTER_MAP_SIZE) {
+    if (x < REGISTER_MAP_SIZE)
+    {
         int tmp[REGISTER_MAP_SIZE];
         memcpy(tmp, register_map, sizeof(register_map));
-        for (i = 0; i < REGISTER_MAP_SIZE; i++) {
-            register_map[i] = tmp[(i+x)%REGISTER_MAP_SIZE];
+        for (i = 0; i < REGISTER_MAP_SIZE; i++)
+        {
+            register_map[i] = tmp[(i + x) % REGISTER_MAP_SIZE];
         }
-    } else {
+    }
+    else
+    {
         /* Shuffle array */
         unsigned int seed = x;
-        for (i = 0; i < REGISTER_MAP_SIZE-1; i++) {
-            int j = i + (rand_r(&seed) % (REGISTER_MAP_SIZE-i));
+        for (i = 0; i < REGISTER_MAP_SIZE - 1; i++)
+        {
+            int j = i + (rand_r(&seed) % (REGISTER_MAP_SIZE - i));
             int tmp = register_map[j];
             register_map[j] = register_map[i];
             register_map[i] = tmp;
@@ -81,28 +122,28 @@ ubpf_set_register_offset(int x)
 static int
 translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
 {
-    emit_push(state, RBP);
-    emit_push(state, RBX);
-    emit_push(state, R13);
-    emit_push(state, R14);
-    emit_push(state, R15);
+    int i;
 
-    /* Move rdi into register 1 */
-    if (map_register(1) != RDI) {
-        emit_mov(state, RDI, map_register(1));
+    /* Save platform non-volatile registers */
+    for (i = 0; i < _countof(platform_nonvolatile_registers); i++)
+    {
+        emit_push(state, platform_nonvolatile_registers[i]);
+    }
+
+    /* Move first platform parameter register into register 1 */
+    if (map_register(1) != platform_parameter_registers[0])
+    {
+        emit_mov(state, platform_parameter_registers[0], map_register(1));
     }
 
     /* Copy stack pointer to R10 */
     emit_mov(state, RSP, map_register(10));
 
     /* Allocate stack space */
-    emit_alu64_imm32(state, 0x81, 5, RSP, STACK_SIZE);
+    emit_alu64_imm32(state, 0x81, 5, RSP, UBPF_STACK_SIZE);
 
-//    /* Copy stack pointer to R10 */
-//    emit_mov(state, RSP, map_register(10));
-
-    int i;
-    for (i = 0; i < vm->num_insts; i++) {
+    for (i = 0; i < vm->num_insts; i++)
+    {
         struct ebpf_inst inst = vm->insts[i];
         state->pc_locs[i] = state->offset;
 
@@ -110,7 +151,8 @@ translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
         int src = map_register(inst.src);
         uint32_t target_pc = i + inst.offset + 1;
 
-        switch (inst.opcode) {
+        switch (inst.opcode)
+        {
         case EBPF_OP_ADD_IMM:
             emit_alu32_imm32(state, 0x81, 0, dst, inst.imm);
             break;
@@ -184,13 +226,16 @@ translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
             /* No-op */
             break;
         case EBPF_OP_BE:
-            if (inst.imm == 16) {
+            if (inst.imm == 16)
+            {
                 /* rol */
                 emit1(state, 0x66); /* 16-bit override */
                 emit_alu32_imm8(state, 0xc1, 0, dst, 8);
                 /* and */
                 emit_alu32_imm32(state, 0x81, 4, dst, 0xffff);
-            } else if (inst.imm == 32 || inst.imm == 64) {
+            }
+            else if (inst.imm == 32 || inst.imm == 64)
+            {
                 /* bswap */
                 emit_basic_rex(state, inst.imm == 64, 0, dst);
                 emit1(state, 0x0f);
@@ -295,6 +340,22 @@ translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
             emit_cmp(state, src, dst);
             emit_jcc(state, 0x83, target_pc);
             break;
+        case EBPF_OP_JLT_IMM:
+            emit_cmp_imm32(state, dst, inst.imm);
+            emit_jcc(state, 0x82, target_pc);
+            break;
+        case EBPF_OP_JLT_REG:
+            emit_cmp(state, src, dst);
+            emit_jcc(state, 0x82, target_pc);
+            break;
+        case EBPF_OP_JLE_IMM:
+            emit_cmp_imm32(state, dst, inst.imm);
+            emit_jcc(state, 0x86, target_pc);
+            break;
+        case EBPF_OP_JLE_REG:
+            emit_cmp(state, src, dst);
+            emit_jcc(state, 0x86, target_pc);
+            break;
         case EBPF_OP_JSET_IMM:
             emit_alu64_imm32(state, 0xf7, 0, dst, inst.imm);
             emit_jcc(state, 0x85, target_pc);
@@ -327,13 +388,30 @@ translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
             emit_cmp(state, src, dst);
             emit_jcc(state, 0x8d, target_pc);
             break;
+        case EBPF_OP_JSLT_IMM:
+            emit_cmp_imm32(state, dst, inst.imm);
+            emit_jcc(state, 0x8c, target_pc);
+            break;
+        case EBPF_OP_JSLT_REG:
+            emit_cmp(state, src, dst);
+            emit_jcc(state, 0x8c, target_pc);
+            break;
+        case EBPF_OP_JSLE_IMM:
+            emit_cmp_imm32(state, dst, inst.imm);
+            emit_jcc(state, 0x8e, target_pc);
+            break;
+        case EBPF_OP_JSLE_REG:
+            emit_cmp(state, src, dst);
+            emit_jcc(state, 0x8e, target_pc);
+            break;
         case EBPF_OP_CALL:
             /* We reserve RCX for shifts */
-            emit_mov(state, R9, RCX);
+            emit_mov(state, RCX_ALT, RCX);
             emit_call(state, vm->ext_funcs[inst.imm]);
             break;
         case EBPF_OP_EXIT:
-            if (i != vm->num_insts - 1) {
+            if (i != vm->num_insts - 1)
+            {
                 emit_jmp(state, TARGET_PC_EXIT);
             }
             break;
@@ -377,7 +455,8 @@ translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
             emit_store(state, S64, src, dst, inst.offset);
             break;
 
-        case EBPF_OP_LDDW: {
+        case EBPF_OP_LDDW:
+        {
             struct ebpf_inst inst2 = vm->insts[++i];
             uint64_t imm = (uint32_t)inst.imm | ((uint64_t)inst2.imm << 32);
             emit_load_imm(state, dst, imm);
@@ -394,28 +473,31 @@ translate(struct ubpf_vm *vm, struct jit_state *state, char **errmsg)
     state->exit_loc = state->offset;
 
     /* Move register 0 into rax */
-    if (map_register(0) != RAX) {
+    if (map_register(0) != RAX)
+    {
         emit_mov(state, map_register(0), RAX);
     }
 
     /* Deallocate stack space */
-    emit_alu64_imm32(state, 0x81, 0, RSP, STACK_SIZE);
+    emit_alu64_imm32(state, 0x81, 0, RSP, UBPF_STACK_SIZE);
 
-    emit_pop(state, R15);
-    emit_pop(state, R14);
-    emit_pop(state, R13);
-    emit_pop(state, RBX);
-    emit_pop(state, RBP);
+    /* Restore platform non-volatile registers */
+    for (i = 0; i < _countof(platform_nonvolatile_registers); i++)
+    {
+        emit_pop(state, platform_nonvolatile_registers[_countof(platform_nonvolatile_registers) - i - 1]);
+    }
 
     emit1(state, 0xc3); /* ret */
 
     /* Division by zero handler */
-    const char *div_by_zero_fmt = "uBPF error: division by zero at PC %u\n";
     state->div_by_zero_loc = state->offset;
-    emit_load_imm(state, RDI, (uintptr_t)stderr);
-    emit_load_imm(state, RSI, (uintptr_t)div_by_zero_fmt);
-    emit_mov(state, RCX, RDX); /* muldivmod stored pc in RCX */
-    emit_call(state, fprintf);
+    const char *div_by_zero_fmt = "uBPF error: division by zero at PC %u\n";
+    // RCX is the first parameter register for Windows, so first save the value.
+    emit_mov(state, RCX, platform_parameter_registers[2]); /* muldivmod stored pc in RCX */
+    emit_load_imm(state, platform_parameter_registers[0], (uintptr_t)stderr);
+    emit_load_imm(state, platform_parameter_registers[1], (uintptr_t)div_by_zero_fmt);
+    emit_call(state, vm->error_printf);
+
     emit_load_imm(state, map_register(0), -1);
     emit_jmp(state, TARGET_PC_EXIT);
 
@@ -430,55 +512,69 @@ muldivmod(struct jit_state *state, uint16_t pc, uint8_t opcode, int src, int dst
     bool mod = (opcode & EBPF_ALU_OP_MASK) == (EBPF_OP_MOD_IMM & EBPF_ALU_OP_MASK);
     bool is64 = (opcode & EBPF_CLS_MASK) == EBPF_CLS_ALU64;
 
-    // TODO: This causes problem with modulo? test src, src when src is 0 divide by zero, should this be done only when immediate isn't present?
-    // if (div || mod) {
-    //     emit_load_imm(state, RCX, pc);
-    //
-    //     /* test src,src */
-    //     if (is64) {
-    //         emit_alu64(state, 0x85, src, src);
-    //     } else {
-    //         emit_alu32(state, 0x85, src, src);
-    //     }
-    //
-    //     /* jz div_by_zero */
-    //     emit_jcc(state, 0x84, TARGET_PC_DIV_BY_ZERO);
-    // }
+    if (div || mod)
+    {
+        emit_load_imm(state, RCX, pc);
 
-    if (dst != RAX) {
+        /* test src,src */
+        if (is64)
+        {
+            emit_alu64(state, 0x85, src, src);
+        }
+        else
+        {
+            emit_alu32(state, 0x85, src, src);
+        }
+
+        /* jz div_by_zero */
+        emit_jcc(state, 0x84, TARGET_PC_DIV_BY_ZERO);
+    }
+
+    if (dst != RAX)
+    {
         emit_push(state, RAX);
     }
-    if (dst != RDX) {
+    if (dst != RDX)
+    {
         emit_push(state, RDX);
     }
-    if (imm) {
+    if (imm)
+    {
         emit_load_imm(state, RCX, imm);
-    } else {
+    }
+    else
+    {
         emit_mov(state, src, RCX);
     }
 
     emit_mov(state, dst, RAX);
 
-    if (div || mod) {
+    if (div || mod)
+    {
         /* xor %edx,%edx */
         emit_alu32(state, 0x31, RDX, RDX);
     }
 
-    if (is64) {
+    if (is64)
+    {
         emit_rex(state, 1, 0, 0, 0);
     }
 
     /* mul %ecx or div %ecx */
     emit_alu32(state, 0xf7, mul ? 4 : 6, RCX);
 
-    if (dst != RDX) {
-        if (mod) {
+    if (dst != RDX)
+    {
+        if (mod)
+        {
             emit_mov(state, RDX, dst);
         }
         emit_pop(state, RDX);
     }
-    if (dst != RAX) {
-        if (div || mul) {
+    if (dst != RAX)
+    {
+        if (div || mul)
+        {
             emit_mov(state, RAX, dst);
         }
         emit_pop(state, RAX);
@@ -486,18 +582,24 @@ muldivmod(struct jit_state *state, uint16_t pc, uint8_t opcode, int src, int dst
 }
 
 static void
-resolve_jumps(struct ubpf_vm *vm, struct jit_state *state)
+resolve_jumps(struct jit_state *state)
 {
     int i;
-    for (i = 0; i < state->num_jumps; i++) {
+    for (i = 0; i < state->num_jumps; i++)
+    {
         struct jump jump = state->jumps[i];
 
         int target_loc;
-        if (jump.target_pc == TARGET_PC_EXIT) {
+        if (jump.target_pc == TARGET_PC_EXIT)
+        {
             target_loc = state->exit_loc;
-        } else if (jump.target_pc == TARGET_PC_DIV_BY_ZERO) {
+        }
+        else if (jump.target_pc == TARGET_PC_DIV_BY_ZERO)
+        {
             target_loc = state->div_by_zero_loc;
-        } else {
+        }
+        else
+        {
             target_loc = state->pc_locs[jump.target_pc];
         }
 
@@ -509,60 +611,85 @@ resolve_jumps(struct ubpf_vm *vm, struct jit_state *state)
     }
 }
 
+int ubpf_translate(struct ubpf_vm *vm, uint8_t *buffer, size_t *size, char **errmsg)
+{
+    struct jit_state state;
+    int result = -1;
+
+    state.offset = 0;
+    state.size = *size;
+    state.buf = buffer;
+    state.pc_locs = calloc(UBPF_MAX_INSTS + 1, sizeof(state.pc_locs[0]));
+    state.jumps = calloc(UBPF_MAX_INSTS, sizeof(state.jumps[0]));
+    state.num_jumps = 0;
+
+    if (translate(vm, &state, errmsg) < 0)
+    {
+        goto out;
+    }
+
+    resolve_jumps(&state);
+    result = 0;
+
+    *size = state.offset;
+
+out:
+    free(state.pc_locs);
+    free(state.jumps);
+    return result;
+}
+
 ubpf_jit_fn
 ubpf_compile(struct ubpf_vm *vm, char **errmsg)
 {
     void *jitted = NULL;
+    uint8_t *buffer = NULL;
     size_t jitted_size;
-    struct jit_state state;
 
-    state.offset = 0;
-    state.size = 65536;
-    state.buf = calloc(state.size, 1);
-    state.pc_locs = calloc(MAX_INSTS+1, sizeof(state.pc_locs[0]));
-    state.jumps = calloc(MAX_INSTS, sizeof(state.jumps[0]));
-    state.num_jumps = 0;
-
-    *errmsg = NULL;
-
-    if (vm->jitted) {
+    if (vm->jitted)
+    {
         return vm->jitted;
     }
 
-    if (!vm->insts) {
+    *errmsg = NULL;
+
+    if (!vm->insts)
+    {
         *errmsg = ubpf_error("code has not been loaded into this VM");
         return NULL;
     }
 
-    if (translate(vm, &state, errmsg) < 0) {
-        goto error;
+    jitted_size = 65536;
+    buffer = calloc(jitted_size, 1);
+
+    if (ubpf_translate(vm, buffer, &jitted_size, errmsg) < 0)
+    {
+        goto out;
     }
 
-    resolve_jumps(vm, &state);
-
-    jitted_size = state.offset;
     jitted = mmap(0, jitted_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (jitted == MAP_FAILED) {
+    if (jitted == MAP_FAILED)
+    {
         *errmsg = ubpf_error("internal uBPF error: mmap failed: %s\n", strerror(errno));
-        goto error;
+        goto out;
     }
 
-    memcpy(jitted, state.buf, jitted_size);
+    memcpy(jitted, buffer, jitted_size);
 
-    if (mprotect(jitted, jitted_size, PROT_READ | PROT_EXEC) < 0) {
+    if (mprotect(jitted, jitted_size, PROT_READ | PROT_EXEC) < 0)
+    {
         *errmsg = ubpf_error("internal uBPF error: mprotect failed: %s\n", strerror(errno));
-        goto error;
+        goto out;
     }
 
-    free(state.buf);
     vm->jitted = jitted;
     vm->jitted_size = jitted_size;
-    return vm->jitted;
 
-error:
-    if (jitted) {
+out:
+    free(buffer);
+    if (jitted && vm->jitted == NULL)
+    {
         munmap(jitted, jitted_size);
     }
-    free(state.buf);
-    return NULL;
+    return vm->jitted;
 }

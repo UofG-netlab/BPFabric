@@ -545,6 +545,8 @@ void *agent_task()
     //
     vm = ubpf_create();
 
+    ubpf_toggle_bounds_check(vm, false);
+
     // Register the map functions
     ubpf_register(vm, 1, "bpf_map_lookup_elem", bpf_lookup);
     ubpf_register(vm, 2, "bpf_map_update_elem", bpf_update);
