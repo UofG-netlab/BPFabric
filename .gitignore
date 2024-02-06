@@ -18,6 +18,8 @@ bpfmap/test_arraymap
 bpfmap/test_bpfmap
 bpfmap/test_hashmap
 
+controller/latency.dat
+
 
 # OpenWRT package files
 ipkg-*
