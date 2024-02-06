@@ -1,21 +1,27 @@
 # BPFabric - Netlab
 
 ## Description
+
 A programmable dataplane using the eBPF instruction set.
 
 ## Dependencies
-Tested and working with
-  * Ubuntu 16.04.1 LTS - kernel 4.4.0-31-generic
-  * clang-3.9
 
+Tested and working with
+
+- Ubuntu 22.04.3 LTS - kernel 5.15.0-92-generic
+- clang 14.0.0
 
 ## Examples
+
 ### Learning Switch
+
 #### Description
+
 Very simple (legacy) learning switch that learn the source mac address and
 associated input port. If the port is unknown the packet is flooded.
 
 #### How-To
+
 Run a mininet topology and install the learningswitch.o eBPF elf to the
 switches.
 
@@ -62,6 +68,7 @@ Connection from switch 00000003, version 1
 ```
 
 Try the connectivity in Mininet between the hosts
+
 ```zsh
 mininet> pingall
 *** Ping: testing ping reachability
@@ -73,6 +80,7 @@ h4 -> h1 h2 h3
 ```
 
 Analyze the tables of the switches to see the ethernet addres to port mapping
+
 ```zsh
 # List the BPF tables available on switch 1
 (Cmd) 1 tables
@@ -95,11 +103,14 @@ Analyze the tables of the switches to see the ethernet addres to port mapping
 ```
 
 ### Centralized Learning Switch
+
 #### Description
+
 A simple centralized switch that will delegate the mac address to port mapping
 to the controller if the destination is unknown.
 
 #### How-To
+
 Run a mininet topology and run the controller responsible to reply to the
 PacketIn events from the switches.
 
@@ -132,12 +143,15 @@ Inserting entry in switch 2  000400000000 1
 More on the wiki at https://github.com/UofG-netlab/BPFabric/wiki/OpenWRT
 
 ## Issues
-  * Error while compiling the examples `/usr/include/linux/types.h:4:10: fatal error: 'asm/types.h' file not found`
-    * `sudo ln -s /usr/include/x86_64-linux-gnu/asm/ /usr/include/asm`
-    * `sudo apt-get install g++-multilib`
+
+- Error while compiling the examples `/usr/include/linux/types.h:4:10: fatal error: 'asm/types.h' file not found`
+  - `sudo ln -s /usr/include/x86_64-linux-gnu/asm/ /usr/include/asm`
+  - `sudo apt-get install g++-multilib`
 
 ## Debugging
+
 ### Disassembling eBPF
+
 ```zsh
 objcopy -I elf64-little -O binary --only-section=.text program.o program.bin
 ubpf/bin/ubpf-disassembler program.bin program.asm
@@ -149,8 +163,10 @@ cat program.asm
 - String relocation is not working properly. The symbol in the ELF file is not containing the offset to the string table preventing the relocation of the string.
 
 ## Authors
-  * Simon Jouet (simon.jouet@glasgow.ac.uk)
-  * Dimitrios Pezaros (dimitrios.pezaros@glasgow.ac.uk)
+
+- Simon Jouet (simon.jouet@glasgow.ac.uk)
+- Dimitrios Pezaros (dimitrios.pezaros@glasgow.ac.uk)
 
 ## Acknowledgements
-  * EPSRC EP/L026015/1: A Situtation-Aware Information Infrastructure
+
+- EPSRC EP/L026015/1: A Situtation-Aware Information Infrastructure
