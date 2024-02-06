@@ -1,3 +1,5 @@
+syntax = "proto3";
+
 message Header {
     enum Type {
         HELLO = 0;
@@ -22,7 +24,4 @@ message Header {
 
         NOTIFY = 15;
     }
-
-    required fixed32 type = 1;
-    required fixed32 length = 2;
 }

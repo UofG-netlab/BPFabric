@@ -1,3 +1,5 @@
+from collections import namedtuple
+import struct
 from twisted.internet import protocol
 
 from packets import *
@@ -13,6 +15,8 @@ class eBPFFactory(protocol.Factory):
 
     def buildProtocol(self, addr):
         return eBPFProtocol(self, self.application)
+
+PacketHeader = namedtuple('PacketHeader', ['type', 'length'])
 
 class eBPFProtocol(protocol.Protocol):
     _message_type_to_object = {
@@ -36,7 +40,8 @@ class eBPFProtocol(protocol.Protocol):
 
     _message_object_to_type = { v: k for k,v in _message_type_to_object.items() }
 
-    HEADER_LENGTH = 10
+    HEADER_FMT = '>HH'
+    HEADER_LENGTH = struct.calcsize(HEADER_FMT)
 
     def __init__(self, factory, application):
         self.factory = factory
@@ -53,12 +58,12 @@ class eBPFProtocol(protocol.Protocol):
             (header and payload) is not available.
         """
 
-        while (not self.header.IsInitialized() and len(self.buffer) >= eBPFProtocol.HEADER_LENGTH) or (self.header.IsInitialized() and len(self.buffer) >= self.header.length):
-            if not self.header.IsInitialized() and len(self.buffer) >= eBPFProtocol.HEADER_LENGTH:
-                self.header.ParseFromString(self.buffer[:eBPFProtocol.HEADER_LENGTH])
+        while (not self.header and len(self.buffer) >= eBPFProtocol.HEADER_LENGTH) or (self.header and len(self.buffer) >= self.header.length):
+            if not self.header and len(self.buffer) >= eBPFProtocol.HEADER_LENGTH:
+                self.header = PacketHeader(*struct.unpack(eBPFProtocol.HEADER_FMT, self.buffer[:eBPFProtocol.HEADER_LENGTH]))
                 self.buffer = self.buffer[eBPFProtocol.HEADER_LENGTH:]
 
-            if self.header.IsInitialized() and len(self.buffer) >= self.header.length:
+            if self.header and len(self.buffer) >= self.header.length:
                 # read the payload of the packet
                 payload = self.buffer[:self.header.length]
                 self.buffer = self.buffer[self.header.length:]
@@ -74,7 +79,7 @@ class eBPFProtocol(protocol.Protocol):
                     yield (self.header, payload)
 
                 # Clear the header for the next packet
-                self.header.Clear()
+                self.header = None
 
     def _run_handlers(self, event, *args):
         """
@@ -99,5 +104,5 @@ class eBPFProtocol(protocol.Protocol):
             Serialize and send a message to a switch.
         """
         payload = pkt.SerializeToString()
-        header = Header(type=eBPFProtocol._message_object_to_type[type(pkt)], length=len(payload))
-        self.transport.write(header.SerializeToString() + payload)
+        header = struct.pack('>HH', eBPFProtocol._message_object_to_type[type(pkt)], len(payload))
+        self.transport.write(header + payload)

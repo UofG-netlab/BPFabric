@@ -1,4 +1,6 @@
+syntax = "proto3";
+
 message Hello {
-    required uint32 version = 1;
-    required uint64 dpid = 2;
+    uint32 version = 1;
+    uint64 dpid = 2;
 }
