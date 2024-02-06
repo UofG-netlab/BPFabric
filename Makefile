@@ -1,7 +1,4 @@
-TARGETS:=switch examples-src
-ifdef RTE_SDK
-	TARGETS:=dpdkswitch-src
-endif
+TARGETS:=switch dpdkswitch-src examples-src
 
 all: $(TARGETS)
 
@@ -33,6 +30,4 @@ clean:
 	cd protocol && $(MAKE) clean
 	cd softswitch && $(MAKE) clean
 	cd examples && $(MAKE) clean
-ifdef RTE_SDK
-  cd dpdkswitch && $(MAKE) clean
-endif
+	cd dpdkswitch && $(MAKE) clean
