@@ -20,7 +20,7 @@ class SimpleSwitchApplication(eBPFCoreApplication):
     @set_event_handler(Header.NOTIFY)
     def notify_event(self, connection, pkt):
         t, arrival, departure = struct.unpack('<III', pkt.data)
-        print t, arrival, departure
+        print(t, arrival, departure)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
 import struct
-import StringIO
+from io import StringIO
 import sys
 import networkx as nx
 from networkx.drawing.nx_agraph import graphviz_layout
@@ -156,7 +156,7 @@ def disassemble_one(data, offset):
         return ("unknown instruction %#x" % code, None)
 
 def disassemble(data):
-    output = StringIO.StringIO()
+    output = StringIO()
     offset = 0
 
     G=nx.DiGraph()
@@ -170,13 +170,13 @@ def disassemble(data):
 
             #
             if offset != current_node and G.has_node(offset):
-                print current_node, offset
+                # print(current_node, offset)
                 G.add_edge(current_node, offset)
                 current_node = offset
 
-            G.node[current_node]['code'].append(s[0])
+            G.nodes[current_node]['code'].append(s[0])
             if s[1] == 'jmp' and s[0].split()[0] not in ['exit', 'call']:
-                print 'jump', s
+                # print('jump', s)
 
                 G.add_node(offset+8, code=[])
                 G.add_edge(current_node, offset+8)
@@ -189,19 +189,16 @@ def disassemble(data):
 
         offset += 8
 
-    print sum([ len(d['code']) for n,d in G.nodes(data=True) ])
-    for path in nx.all_simple_paths(G, 0, current_node):
-        print path, sum([ len(G.node[n]['code']) for n in path ])
+    # print(sum([ len(d['code']) for n,d in G.nodes(data=True) ]))
+    # for path in nx.all_simple_paths(G, 0, current_node):
+        # print(path, sum([ len(G.nodes[n]['code']) for n in path ]))
 
-    nx.draw_networkx(G, labels={ k: '\n'.join(n.get('code', '')) for k,n in G.nodes(data=True) })
-    plt.show()
+    # nx.draw_networkx(G, labels={ k: '\n'.join(n.get('code', '')) for k,n in G.nodes(data=True) })
+    # plt.show()
 
-    A = nx.nx_agraph.to_agraph(G)
-    A.layout('dot', args='-Nfontsize=10 -Nwidth=".2" -Nheight=".2" -Nmargin=0 -Gfontsize=8')
-    A.draw('test.png')
-
-
-
+    # A = nx.nx_agraph.to_agraph(G)
+    # A.layout('dot', args='-Nfontsize=10 -Nwidth=".2" -Nheight=".2" -Nmargin=0 -Gfontsize=8')
+    # A.draw('test.png')
 
     return output.getvalue()
 
@@ -211,4 +208,4 @@ if __name__ == '__main__':
 
         for section in elffile.iter_sections():
             if section.name == '.text':
-                disassemble(section.data())
+                print(disassemble(section.data()))

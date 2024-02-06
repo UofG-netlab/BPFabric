@@ -1,10 +1,6 @@
-from mininet.net import Mininet
 from mininet.node import Switch, Host
-from mininet.util import errRun
-from mininet.link import TCIntf
 import subprocess
 
-from time import sleep
 
 class eBPFHost(Host):
     def config(self, **params):
@@ -38,7 +34,7 @@ class eBPFSwitch(Switch):
         pass
 
     def start(self, controllers):
-        print "Starting eBPF switch", self.name
+        print("Starting eBPF switch", self.name)
 
         args = [self.switch_path]
 
@@ -48,10 +44,10 @@ class eBPFSwitch(Switch):
             if not intf.IP():
                 args.append(intf.name)
 
-        print ' '.join(args) + ' &'
+        # print(' '.join(args) + ' &')
 
         self.proc = subprocess.Popen(args)
 
     def stop(self):
-        print 'stopping'
+        print('stopping')
         self.proc.kill()

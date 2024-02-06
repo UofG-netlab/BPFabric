@@ -5,9 +5,6 @@ from core import eBPFCoreApplication, set_event_handler
 from core.packets import *
 
 import time
-import collections
-import matplotlib
-# matplotlib.use('TkAgg')
 
 from matplotlib import pyplot as plt
 
@@ -75,9 +72,9 @@ class EWMAApplication(eBPFCoreApplication):
     @set_event_handler(Header.NOTIFY)
     def notify_event(self, connection, pkt):
 
-        print pkt.data.encode('hex')
+        print(pkt.data.encode('hex'))
         volume, packets, prediction, lasttime, count = EWMAApplication.ewmaStruct.unpack(pkt.data)
-        print '[{}] [{}] volume: {} prediction: {} packets: {}'.format(connection.dpid, pkt.id, volume, prediction, packets)
+        print('[{connection.dpid}] [{pkt.id}] volume: {volume} prediction: {prediction} packets: {packets}')
 
         port_data = ports_data[pkt.id]
         port_data.add_points(time.time() - self.start_time, volume, prediction)

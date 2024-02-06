@@ -4,8 +4,6 @@ import struct
 from core import eBPFCoreApplication, set_event_handler
 from core.packets import *
 
-import time
-import matplotlib
 import threading
 
 from matplotlib import pyplot as plt
@@ -56,7 +54,7 @@ class TrafficHistApplication(eBPFCoreApplication):
         plt.bar(x, data, align='center')
         plt.xticks(x, x_labels, rotation=70)
 
-        print data
+        print(data)
         plt.draw()
         plt.pause(0.01)
 

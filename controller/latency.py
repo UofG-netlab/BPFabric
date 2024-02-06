@@ -9,7 +9,7 @@ def int2ip(addr):
     return socket.inet_ntoa(struct.pack("!I", addr))
 
 
-out = file('latency.dat', 'w')
+out = open('latency.dat', 'w')
 
 class SimpleSwitchApplication(eBPFCoreApplication):
     @set_event_handler(Header.HELLO)

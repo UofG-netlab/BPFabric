@@ -2,9 +2,9 @@ import time
 
 from twisted.internet import reactor
 
-from events import set_event_handler
-from protocol import eBPFFactory
-from packets import *
+from .events import set_event_handler
+from .protocol import eBPFFactory
+from .packets import *
 
 class eBPFCoreApplication(object):
     def __init__(self):

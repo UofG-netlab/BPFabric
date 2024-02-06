@@ -2,8 +2,8 @@ from collections import namedtuple
 import struct
 from twisted.internet import protocol
 
-from packets import *
-from events import _handlers
+from .packets import *
+from .events import _handlers
 
 FLOOD      = 0xfffffffd
 CONTROLLER = 0xfffffffe
@@ -46,8 +46,8 @@ class eBPFProtocol(protocol.Protocol):
     def __init__(self, factory, application):
         self.factory = factory
         self.application = application
-        self.buffer = ''
-        self.header = Header()
+        self.buffer = bytearray()
+        self.header = None
 
     def _read_packets(self):
         """
@@ -65,7 +65,7 @@ class eBPFProtocol(protocol.Protocol):
 
             if self.header and len(self.buffer) >= self.header.length:
                 # read the payload of the packet
-                payload = self.buffer[:self.header.length]
+                payload = bytes(self.buffer[:self.header.length])
                 self.buffer = self.buffer[self.header.length:]
 
                 # Deserialize the packet to its associated object
@@ -90,7 +90,7 @@ class eBPFProtocol(protocol.Protocol):
 
     def dataReceived(self, data):
         # append the newly received data to the buffer
-        self.buffer += data
+        self.buffer.extend(data)
 
         # Iterate over the packets received, call the associated handlers
         for header, packet in self._read_packets():

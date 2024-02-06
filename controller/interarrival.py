@@ -4,12 +4,7 @@ import struct
 from core import eBPFCoreApplication, set_event_handler
 from core.packets import *
 
-import time
-import matplotlib
-import threading
-
 from matplotlib import pyplot as plt
-import numpy as np
 
 plt.ion()
 
@@ -28,13 +23,15 @@ class InterArrivalApplication(eBPFCoreApplication):
 
     @set_event_handler(Header.NOTIFY)
     def notify_event(self, connection, pkt):
-        print pkt.data.encode('hex')
+        print(pkt.data.hex())
 
-        num_bins = len(pkt.data) / 8
+        num_bins = len(pkt.data) // 8
+        print(num_bins)
         x = range(num_bins)
         x_labels = [ '{} - {}'.format((i*2**24)/1000, ((i+1)*2**24-1)/1000) for i in x ]
 
         data = [ struct.unpack_from('Q', pkt.data, i)[0] for i in range(0, len(pkt.data), 8) ]
+        print(data)
 
         plt.cla()
         plt.clf()

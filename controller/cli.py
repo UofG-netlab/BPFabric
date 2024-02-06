@@ -55,14 +55,14 @@ class SwitchTableCli(cmd.Cmd):
         self.connection.send(TableListRequest(table_name=self.table_name))
 
     def do_get(self, line):
-        self.connection.send(TableEntryGetRequest(table_name=self.table_name, key=line.decode('hex')))
+        self.connection.send(TableEntryGetRequest(table_name=self.table_name, key=bytes.fromhex(line)))
 
     def do_update(self, line):
         args = line.split()
-        self.connection.send(TableEntryInsertRequest(table_name=self.table_name, key=args[0].decode('hex'), value=args[1].decode('hex')))
+        self.connection.send(TableEntryInsertRequest(table_name=self.table_name, key=bytes.fromhex(args[0]), value=bytes.fromhex(args[1])))
 
     def do_delete(self, line):
-        self.connection.send(TableEntryDeleteRequest(table_name=self.table_name, key=line.decode('hex')))
+        self.connection.send(TableEntryDeleteRequest(table_name=self.table_name, key=bytes.fromhex(line)))
 
     def emptyline(self):
          self.do_help(None)
@@ -78,14 +78,14 @@ class SwitchCLI(cmd.Cmd):
     def do_table(self, line):
         args = line.split()
         if len(args) == 0:
-            print 'Missing table name'
+            print('Missing table name')
             return
 
         SwitchTableCli(self.connection, args[0]).onecmd(' '.join(args[1:]))
 
     def do_install(self, path):
         if not os.path.isfile(path):
-            print 'Invalid file path'
+            print('Invalid file path')
             return
 
         with open(path, 'rb') as f:
@@ -116,7 +116,7 @@ class MainCLI(cmd.Cmd):
                 if dpid in self.application.connections:
                     SwitchCLI(self.application.connections[dpid]).onecmd(' '.join(args[1:]))
                 else:
-                    print 'Switch with dpid {} is not connected.'.format(dpid)
+                    print(f'Switch with dpid {dpid} is not connected.')
             except ValueError:
                 cmd.Cmd.default(self, line)
 
@@ -139,7 +139,7 @@ class eBPFCLIApplication(eBPFCoreApplication):
         try:
             MainCLI(self).cmdloop()
         except KeyboardInterrupt:
-            print "\nGot keyboard interrupt. Exiting..."
+            print("\nGot keyboard interrupt. Exiting...")
         finally:
             reactor.callFromThread(reactor.stop)
 
@@ -151,37 +151,36 @@ class eBPFCLIApplication(eBPFCoreApplication):
     def table_list_reply(self, connection, pkt):
         entries = []
 
-        if pkt.HasField('items') and pkt.HasField('entry'):
-            if pkt.entry.table_type == TableDefinition.HASH:
-                item_size = pkt.entry.key_size + pkt.entry.value_size
-                fmt = "{}s{}s".format(pkt.entry.key_size, pkt.entry.value_size)
+        if pkt.entry.table_type == TableDefinition.HASH:
+            item_size = pkt.entry.key_size + pkt.entry.value_size
+            fmt = "{}s{}s".format(pkt.entry.key_size, pkt.entry.value_size)
 
-                for i in range(pkt.n_items):
-                    key, value = struct.unpack_from(fmt, pkt.items, i * item_size)
-                    entries.append((key.encode('hex'), value.encode('hex')))
+            for i in range(pkt.n_items):
+                key, value = struct.unpack_from(fmt, pkt.items, i * item_size)
+                entries.append((key.hex(), value.hex()))
 
-            elif pkt.entry.table_type == TableDefinition.ARRAY:
-                item_size = pkt.entry.value_size
-                fmt = "{}s".format(pkt.entry.value_size)
+        elif pkt.entry.table_type == TableDefinition.ARRAY:
+            item_size = pkt.entry.value_size
+            fmt = "{}s".format(pkt.entry.value_size)
 
-                for i in range(pkt.n_items):
-                    value = struct.unpack_from(fmt, pkt.items, i * item_size)[0]
-                    entries.append((i, value.encode('hex')))
+            for i in range(pkt.n_items):
+                value = struct.unpack_from(fmt, pkt.items, i * item_size)[0]
+                entries.append((i, value.hex()))
 
         tabulate(entries, headers=["Key", "Value"])
 
     @set_event_handler(Header.TABLE_ENTRY_GET_REPLY)
     def table_entry_get_reply(self, connection, pkt):
-        tabulate([(pkt.key.encode('hex'), pkt.value.encode('hex'))], headers=["Key", "Value"])
+        tabulate([(pkt.key.hex(), pkt.value.hex())], headers=["Key", "Value"])
 
     @set_event_handler(Header.NOTIFY)
     def notify_event(self, connection, pkt):
-        print '\n[{}] Received notify event {}, data length {}'.format(connection.dpid, pkt.id, len(pkt.data))
-        print pkt.data.encode('hex')
+        print(f'\n[{connection.dpid}] Received notify event {pkt.id}, data length {pkt.data}')
+        print(pkt.data.hex())
 
     @set_event_handler(Header.PACKET_IN)
     def packet_in(self, connection, pkt):
-	print '\n[{}] Received packet in {}'.format(connection.dpid, pkt.data.encode('hex'))
+	    print(f"\n[{connection.dpid}] Received packet in {pkt.data.hex()}")
 
 
 if __name__ == '__main__':
