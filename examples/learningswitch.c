@@ -13,18 +13,21 @@ uint64_t prog(struct packet *pkt)
     uint32_t *out_port;
 
     // if the source is not a broadcast or multicast
-    if ((pkt->eth.h_source[0] & 1) == 0) {
+    if ((pkt->eth.h_source[0] & 1) == 0)
+    {
         // Update the port associated with the packet
         bpf_map_update_elem(&inports, pkt->eth.h_source, &pkt->metadata.in_port, 0);
     }
 
     // Flood if the destination is broadcast or multicast
-    if (pkt->eth.h_dest[0] & 1) {
+    if (pkt->eth.h_dest[0] & 1)
+    {
         return FLOOD;
     }
 
     // Lookup the output port
-    if (bpf_map_lookup_elem(&inports, pkt->eth.h_dest, &out_port) == -1) {
+    if (bpf_map_lookup_elem(&inports, pkt->eth.h_dest, &out_port) == -1)
+    {
         // If no entry was found flood
         return FLOOD;
     }

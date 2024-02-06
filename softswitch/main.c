@@ -24,20 +24,21 @@
 #include "ebpf_consts.h"
 
 #ifndef likely
-    #define likely(x)        __builtin_expect(!!(x), 1)
+#define likely(x) __builtin_expect(!!(x), 1)
 #endif
 #ifndef unlikely
-    #define unlikely(x)        __builtin_expect(!!(x), 0)
+#define unlikely(x) __builtin_expect(!!(x), 0)
 #endif
 
 #ifndef __aligned_tpacket
-    #define __aligned_tpacket    __attribute__((aligned(TPACKET_ALIGNMENT)))
+#define __aligned_tpacket __attribute__((aligned(TPACKET_ALIGNMENT)))
 #endif
 #ifndef __align_tpacket
-    #define __align_tpacket(x)    __attribute__((aligned(TPACKET_ALIGN(x))))
+#define __align_tpacket(x) __attribute__((aligned(TPACKET_ALIGN(x))))
 #endif
 
-struct ring {
+struct ring
+{
     struct iovec *rd;
     uint8_t *map;
     struct tpacket_req req;
@@ -45,13 +46,15 @@ struct ring {
     int frame_num;
 };
 
-struct port {
+struct port
+{
     int fd;
     struct ring rx_ring;
     struct ring tx_ring;
 };
 
-struct dataplane {
+struct dataplane
+{
     unsigned long long dpid;
     int port_count;
     struct port *ports;
@@ -59,8 +62,10 @@ struct dataplane {
 
 static sig_atomic_t sigint = 0;
 
-union frame_map {
-    struct {
+union frame_map
+{
+    struct
+    {
         struct tpacket2_hdr tp_h __aligned_tpacket;
         struct sockaddr_ll s_ll __align_tpacket(sizeof(struct tpacket2_hdr));
     } *v2;
@@ -74,7 +79,7 @@ static void sighandler(int num)
 
 static void voidhandler(int num) {} // NOTE: do nothing prevent mininet from killing the softswitch
 
-static int setup_ring(int fd, struct ring* ring, int ring_type)
+static int setup_ring(int fd, struct ring *ring, int ring_type)
 {
     int err;
     unsigned int blocknum = 256;
@@ -91,7 +96,8 @@ static int setup_ring(int fd, struct ring* ring, int ring_type)
     ring->size = ring->req.tp_block_size * ring->req.tp_block_nr;
 
     err = setsockopt(fd, SOL_PACKET, ring_type, &ring->req, sizeof(ring->req));
-    if (err < 0) {
+    if (err < 0)
+    {
         perror("setsockopt");
         exit(1);
     }
@@ -105,7 +111,8 @@ static int setup_socket(struct port *port, char *netdev)
     struct sockaddr_ll ll;
 
     ifindex = if_nametoindex(netdev);
-    if (ifindex == 0) {
+    if (ifindex == 0)
+    {
         perror("interface");
         exit(1);
     }
@@ -113,7 +120,8 @@ static int setup_socket(struct port *port, char *netdev)
 
     // Opens a raw socket for this port
     fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-    if (fd < 0) {
+    if (fd < 0)
+    {
         perror("socket");
         exit(1);
     }
@@ -121,7 +129,8 @@ static int setup_socket(struct port *port, char *netdev)
     port->fd = fd;
 
     err = setsockopt(fd, SOL_PACKET, PACKET_VERSION, &v, sizeof(v));
-    if (err < 0) {
+    if (err < 0)
+    {
         perror("setsockopt");
         exit(1);
     }
@@ -134,9 +143,10 @@ static int setup_socket(struct port *port, char *netdev)
     setup_ring(fd, &port->tx_ring, PACKET_TX_RING);
 
     port->rx_ring.map = mmap(NULL, port->rx_ring.size + port->tx_ring.size,
-        PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
+                             PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
 
-    if (port->rx_ring.map == MAP_FAILED) {
+    if (port->rx_ring.map == MAP_FAILED)
+    {
         perror("mmap");
         exit(1);
     }
@@ -156,12 +166,14 @@ static int setup_socket(struct port *port, char *netdev)
 
     // TODO check if ring->rd is allocated properly
     // printf("number of frames: %d\n", port->rx_ring.req.tp_frame_nr);
-    for (i = 0; i < port->rx_ring.req.tp_frame_nr; ++i) {
+    for (i = 0; i < port->rx_ring.req.tp_frame_nr; ++i)
+    {
         port->rx_ring.rd[i].iov_base = port->rx_ring.map + (i * port->rx_ring.req.tp_frame_size);
         port->rx_ring.rd[i].iov_len = port->rx_ring.req.tp_frame_size;
     }
 
-    for (i = 0; i < port->tx_ring.req.tp_frame_nr; ++i) {
+    for (i = 0; i < port->tx_ring.req.tp_frame_nr; ++i)
+    {
         port->tx_ring.rd[i].iov_base = port->tx_ring.map + (i * port->tx_ring.req.tp_frame_size);
         port->tx_ring.rd[i].iov_len = port->tx_ring.req.tp_frame_size;
     }
@@ -175,8 +187,9 @@ static int setup_socket(struct port *port, char *netdev)
     ll.sll_pkttype = 0;
     ll.sll_halen = 0;
 
-    err = bind(fd, (struct sockaddr *) &ll, sizeof(ll));
-    if (err < 0) {
+    err = bind(fd, (struct sockaddr *)&ll, sizeof(ll));
+    if (err < 0)
+    {
         perror("bind");
         exit(1);
     }
@@ -217,12 +230,14 @@ static inline void v2_tx_user_ready(struct tpacket2_hdr *hdr)
     __sync_synchronize();
 }
 
-int tx_frame(struct port* port, void *data, int len) {
+int tx_frame(struct port *port, void *data, int len)
+{
     // add the packet to the port tx queue
     struct ring *tx_ring = &port->tx_ring;
 
     // TODO: Drop if tx queue is full? (drop-tail)
-    if (v2_tx_kernel_ready(tx_ring->rd[tx_ring->frame_num].iov_base)) {
+    if (v2_tx_kernel_ready(tx_ring->rd[tx_ring->frame_num].iov_base))
+    {
         union frame_map ppd_out;
         ppd_out.raw = tx_ring->rd[tx_ring->frame_num].iov_base;
 
@@ -238,9 +253,9 @@ int tx_frame(struct port* port, void *data, int len) {
         // assert(ppd.v2->tp_h.tp_len == ppd.v2->tp_h.tp_snaplen);
         // printf("ppd_out.tp_mac %d\n", ppd_out.v2->tp_h.tp_mac);
 
-        memcpy((uint8_t *) ppd_out.raw + TPACKET2_HDRLEN - sizeof(struct sockaddr_ll),
-            (uint8_t *) data,
-            len);
+        memcpy((uint8_t *)ppd_out.raw + TPACKET2_HDRLEN - sizeof(struct sockaddr_ll),
+               (uint8_t *)data,
+               len);
 
         ppd_out.v2->tp_h.tp_status = TP_STATUS_SEND_REQUEST;
 
@@ -259,11 +274,10 @@ static char doc[] = "eBPF-switch -- eBPF user space switch";
 static char args_doc[] = "interface1 interface2 [interface3 ...]";
 
 static struct argp_option options[] = {
-    {"verbose",  'v',      0,      0, "Produce verbose output" },
-    {"dpid"   ,  'd', "dpid",      0, "Datapath id of the switch"},
+    {"verbose", 'v', 0, 0, "Produce verbose output"},
+    {"dpid", 'd', "dpid", 0, "Datapath id of the switch"},
     {"controller", 'c', "address", 0, "Controller address default to 127.0.0.1:9000"},
-    { 0 }
-};
+    {0}};
 
 #define MAX_INTERFACES 255
 
@@ -284,42 +298,44 @@ parse_opt(int key, char *arg, struct argp_state *state)
 
     switch (key)
     {
-        case 'v':
-            arguments->verbose = 1;
-            break;
+    case 'v':
+        arguments->verbose = 1;
+        break;
 
-        case 'd':
-            arguments->dpid = strtoull(arg, NULL, 10);
-            break;
+    case 'd':
+        arguments->dpid = strtoull(arg, NULL, 10);
+        break;
 
-        case 'c':
-            arguments->controller = arg;
-            break;
+    case 'c':
+        arguments->controller = arg;
+        break;
 
-        case ARGP_KEY_ARG:
-            arguments->interfaces[state->arg_num] = arg;
-            arguments->interface_count++;
-            break;
+    case ARGP_KEY_ARG:
+        arguments->interfaces[state->arg_num] = arg;
+        arguments->interface_count++;
+        break;
 
-        case ARGP_KEY_END:
-            if (state->arg_num < 1) /* Not enough arguments. */
-                argp_usage (state);
-            break;
+    case ARGP_KEY_END:
+        if (state->arg_num < 1) /* Not enough arguments. */
+            argp_usage(state);
+        break;
 
-        default:
-            return ARGP_ERR_UNKNOWN;
+    default:
+        return ARGP_ERR_UNKNOWN;
     }
 
     return 0;
 }
 
-static struct argp argp = { options, parse_opt, args_doc, doc };
+static struct argp argp = {options, parse_opt, args_doc, doc};
 
-unsigned long long random_dpid() {
+unsigned long long random_dpid()
+{
     srand(time(NULL));
     unsigned long long dpid = 0;
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 5; i++)
+    {
         dpid = (dpid << 15) | (rand() & 0x7FFF);
     }
 
@@ -327,45 +343,50 @@ unsigned long long random_dpid() {
 }
 
 // flags is the hack to force transmission
-void transmit(struct metadatahdr *buf, int len, uint32_t port, int flags) {
+void transmit(struct metadatahdr *buf, int len, uint32_t port, int flags)
+{
     int i;
     void *eth_frame = (uint8_t *)buf + sizeof(struct metadatahdr);
     int eth_len = len - sizeof(struct metadatahdr);
 
-    switch (port) {
-        case FLOOD:
-            // printf("Flooding the packet\n");
-            for (i = 0; i < dataplane.port_count; i++) {
-                if (i != buf->in_port) {
-                    // printf("sending frame from port %d to port %d on switch %llu\n", buf->in_port, i, dataplane.dpid);
-                    tx_frame(&dataplane.ports[i], eth_frame, eth_len);
-                }
+    switch (port)
+    {
+    case FLOOD:
+        for (i = 0; i < dataplane.port_count; i++)
+        {
+            if (i != buf->in_port)
+            {
+                // printf("sending frame from port %d to port %d on switch %llu\n", buf->in_port, i, dataplane.dpid);
+                tx_frame(&dataplane.ports[i], eth_frame, eth_len);
             }
+        }
 
-            // HACK, the packets are only sent after poll() however this
-            // can be called asynchronously on packet from the controller and
-            // therefore delay the packet transmission until the next packet is received
-            if (flags) {
-                for (i = 0; i < dataplane.port_count; i++) {
-                    send(dataplane.ports[i].fd, NULL, 0, MSG_DONTWAIT);
-                }
+        // HACK, the packets are only sent after poll() however this
+        // can be called asynchronously on packet from the controller and
+        // therefore delay the packet transmission until the next packet is received
+        if (flags)
+        {
+            for (i = 0; i < dataplane.port_count; i++)
+            {
+                send(dataplane.ports[i].fd, NULL, 0, MSG_DONTWAIT);
             }
+        }
 
-            break;
-        //
-        case CONTROLLER:
-            // printf("Sending to controller\n");
-            agent_packetin(buf, len);
-            break;
-        //
-        case DROP:
-            // printf("Dropping the packet\n");
-            break;
+        break;
+    //
+    case CONTROLLER:
+        // printf("Sending to controller\n");
+        agent_packetin(buf, len);
+        break;
+    //
+    case DROP:
+        // printf("Dropping the packet\n");
+        break;
 
-        default:
-            // printf("Forwarding the packet\n");
-            // printf("in_port %d out_port %lu data_len %lu\n", buf->in_port, port, len - sizeof(struct metadatahdr));
-            tx_frame(&dataplane.ports[port], eth_frame, eth_len);
+    default:
+        // printf("Forwarding the packet\n");
+        // printf("in_port %d out_port %lu data_len %lu\n", buf->in_port, port, len - sizeof(struct metadatahdr));
+        tx_frame(&dataplane.ports[port], eth_frame, eth_len);
     }
 }
 
@@ -388,13 +409,14 @@ int main(int argc, char **argv)
     /* */
     struct pollfd pfds[dataplane.port_count];
 
-    // signal(SIGINT, sighandler);
-    signal(SIGINT, voidhandler);
+    signal(SIGINT, sighandler);
+    // signal(SIGINT, voidhandler);
     signal(SIGKILL, sighandler);
 
     /* setup all the interfaces */
     printf("Setting up %d interfaces\n", dataplane.port_count);
-    for (i = 0; i < dataplane.port_count; i++) {
+    for (i = 0; i < dataplane.port_count; i++)
+    {
         // Create the socket, allocate the tx and rx rings and create the frame io vectors
         setup_socket(&dataplane.ports[i], arguments.interfaces[i]);
 
@@ -412,22 +434,24 @@ int main(int argc, char **argv)
     ubpf_jit_fn ubpf_fn = NULL;
     struct agent_options options = {
         .dpid = dataplane.dpid,
-        .controller = arguments.controller
-    };
+        .controller = arguments.controller};
 
     agent_start(&ubpf_fn, (tx_packet_fn)transmit, &options);
 
     //
     union frame_map ppd;
 
-    while (likely(!sigint)) {
+    while (likely(!sigint))
+    {
         //
-        for (i = 0; i < dataplane.port_count; i++) {
+        for (i = 0; i < dataplane.port_count; i++)
+        {
             //
             struct ring *rx_ring = &dataplane.ports[i].rx_ring;
 
             // process all the packets received in the rx_ring
-            while (v2_rx_kernel_ready(rx_ring->rd[rx_ring->frame_num].iov_base)) {
+            while (v2_rx_kernel_ready(rx_ring->rd[rx_ring->frame_num].iov_base))
+            {
                 ppd.raw = rx_ring->rd[rx_ring->frame_num].iov_base;
 
                 // printf("metadatahdr len %lu\n", sizeof(struct metadatahdr)); // Should be  ppd.v2->tp_h.tp_mac - TPACKET2_HDRLEN
@@ -440,7 +464,8 @@ int main(int argc, char **argv)
                 metadatahdr->length = (uint16_t)ppd.v2->tp_h.tp_len;
 
                 /* Here we have the packet and we can do whatever we want with it */
-                if (ubpf_fn != NULL) {
+                if (ubpf_fn != NULL)
+                {
                     uint64_t ret = ubpf_fn(metadatahdr, ppd.v2->tp_h.tp_len + sizeof(struct metadatahdr));
                     // printf("bpf return value %lu\n", ret);
                     transmit(metadatahdr, ppd.v2->tp_h.tp_len + sizeof(struct metadatahdr), (uint32_t)ret, 0);
@@ -453,7 +478,8 @@ int main(int argc, char **argv)
         }
 
         // Send all the pendings packets for each interface
-        for (i = 0; i < dataplane.port_count; i++) {
+        for (i = 0; i < dataplane.port_count; i++)
+        {
             send(dataplane.ports[i].fd, NULL, 0, MSG_DONTWAIT); // Should we use POLLOUT and just queue the messages to transmit then call send() once
         }
 
@@ -464,7 +490,8 @@ int main(int argc, char **argv)
     /* House keeping */
     agent_stop();
     printf("Terminating ...\n");
-    for (i = 0; i < dataplane.port_count; i++) {
+    for (i = 0; i < dataplane.port_count; i++)
+    {
         teardown_socket(&dataplane.ports[i]);
     }
 
