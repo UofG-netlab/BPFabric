@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <inttypes.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
 #include <linux/ethtool.h>
@@ -18,6 +19,8 @@
 #include <linux/ip.h>
 #include <linux/types.h>
 #include <linux/sockios.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
 #include <sys/ioctl.h>
 #include <argp.h>
 
@@ -92,7 +95,58 @@ sighandler(int num)
     sigint = 1;
 }
 
-static void voidhandler(int num) {} // NOTE: do nothing prevent mininet from killing the softswitch
+static void voidhandler(int num) {}
+
+/**
+ * @brief Allocate a new TUN/TAP interface
+ *
+ * @param dev the name of an interface (or '\0'). MUST have enough space to hold the interface name if '\0' is passed
+ * @param flags interface flags (eg, IFF_TUN etc.)
+ * @return int the file descriptor of the opened interface
+ */
+int tun_alloc(char *dev, int flags)
+{
+
+    struct ifreq ifr;
+    int fd, err;
+    char *clonedev = "/dev/net/tun";
+
+    /* open the clone device */
+    if ((fd = open(clonedev, O_RDWR)) < 0)
+    {
+        return fd;
+    }
+
+    /* preparation of the struct ifr, of type "struct ifreq" */
+    memset(&ifr, 0, sizeof(ifr));
+
+    ifr.ifr_flags = flags; /* IFF_TUN or IFF_TAP, plus maybe IFF_NO_PI */
+
+    if (*dev)
+    {
+        /* if a device name was specified, put it in the structure; otherwise,
+         * the kernel will try to allocate the "next" device of the
+         * specified type */
+        strncpy(ifr.ifr_name, dev, IFNAMSIZ);
+    }
+
+    /* try to create the device */
+    if ((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0)
+    {
+        close(fd);
+        return err;
+    }
+
+    /* if the operation was successful, write back the name of the
+     * interface to the variable "dev", so the caller can know
+     * it. Note that the caller MUST reserve space in *dev (see calling
+     * code below) */
+    strcpy(dev, ifr.ifr_name);
+
+    /* this is the special file descriptor that the caller will use to talk
+     * with the virtual interface */
+    return fd;
+}
 
 static int setup_ring(int fd, struct ring *ring, int ring_type)
 {
@@ -176,6 +230,17 @@ static int setup_socket(struct port *port, char *netdev, int promiscuous)
         {
             printf("%s failed to set SIOCETHTOOL ioctl: %s\n", netdev, strerror(errno));
         }
+    }
+
+    // Bring the interface up
+    // memset(&ifr, 0, sizeof(ifr));
+    ifr.ifr_data = NULL;
+    ifr.ifr_flags = IFF_UP;
+
+    if ((ioctl(fd, SIOCSIFFLAGS, (void *)&ifr)) < 0)
+    {
+        perror("error");
+        exit(1);
     }
 
     // NOTE: disable qdisc, trivial performance improvement
@@ -322,6 +387,7 @@ static struct argp_option options[] = {
     {"controller", 'c', "address", 0, "Controller address default to 127.0.0.1:9000"},
     {"promiscuous", 'p', NULL, OPTION_ARG_OPTIONAL, "Enable promiscuous mode"},
     {"sigint", 'i', NULL, OPTION_ARG_OPTIONAL, "Disable sigint handler"},
+    {"tap", 't', "tap", OPTION_ARG_OPTIONAL, "Add additional TAP interfaces"},
     {0}};
 
 #define MAX_INTERFACES 255
@@ -365,9 +431,18 @@ parse_opt(int key, char *arg, struct argp_state *state)
         arguments->controller = arg;
         break;
 
+    case 't':
+        printf("adding tap interface %s\n", arg);
+        if (tun_alloc(arg, IFF_TAP | IFF_NO_PI) < 0)
+        {
+            perror("error allocating tap interface");
+            return errno;
+        }
+        arguments->interfaces[arguments->interface_count++] = arg;
+        break;
+
     case ARGP_KEY_ARG:
-        arguments->interfaces[state->arg_num] = arg;
-        arguments->interface_count++;
+        arguments->interfaces[arguments->interface_count++] = arg;
         break;
 
     case ARGP_KEY_END:
