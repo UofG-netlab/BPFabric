@@ -22,6 +22,7 @@
 #include "ubpf.h"
 #include "agent.h"
 #include "ebpf_consts.h"
+#include "ebpf_packet.h"
 
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -343,13 +344,13 @@ unsigned long long random_dpid()
 }
 
 // flags is the hack to force transmission
-void transmit(struct metadatahdr *buf, int len, uint32_t port, int flags)
+void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
 {
     int i;
     void *eth_frame = (uint8_t *)buf + sizeof(struct metadatahdr);
     int eth_len = len - sizeof(struct metadatahdr);
 
-    switch (port)
+    switch (target & OPCODE_MASK)
     {
     case FLOOD:
         for (i = 0; i < dataplane.port_count; i++)
@@ -375,18 +376,18 @@ void transmit(struct metadatahdr *buf, int len, uint32_t port, int flags)
         break;
     //
     case CONTROLLER:
-        // printf("Sending to controller\n");
         agent_packetin(buf, len);
         break;
     //
+    case PORT:
+        tx_frame(&dataplane.ports[target & VALUE_MASK], eth_frame, eth_len);
+        break;
+    //
+    case NEXT:
     case DROP:
+    default:
         // printf("Dropping the packet\n");
         break;
-
-    default:
-        // printf("Forwarding the packet\n");
-        // printf("in_port %d out_port %lu data_len %lu\n", buf->in_port, port, len - sizeof(struct metadatahdr));
-        tx_frame(&dataplane.ports[port], eth_frame, eth_len);
     }
 }
 
@@ -431,12 +432,11 @@ int main(int argc, char **argv)
     printf("\n");
 
     /* */
-    ubpf_jit_fn ubpf_fn = NULL;
     struct agent_options options = {
         .dpid = dataplane.dpid,
         .controller = arguments.controller};
 
-    agent_start(&ubpf_fn, (tx_packet_fn)transmit, &options);
+    agent_start((tx_packet_fn)transmit, &options);
 
     //
     union frame_map ppd;
@@ -464,12 +464,8 @@ int main(int argc, char **argv)
                 metadatahdr->length = (uint16_t)ppd.v2->tp_h.tp_len;
 
                 /* Here we have the packet and we can do whatever we want with it */
-                if (ubpf_fn != NULL)
-                {
-                    uint64_t ret = ubpf_fn(metadatahdr, ppd.v2->tp_h.tp_len + sizeof(struct metadatahdr));
-                    // printf("bpf return value %lu\n", ret);
-                    transmit(metadatahdr, ppd.v2->tp_h.tp_len + sizeof(struct metadatahdr), (uint32_t)ret, 0);
-                }
+                uint64_t ret = pipeline_exec(metadatahdr, ppd.v2->tp_h.tp_len + sizeof(struct metadatahdr));
+                transmit(metadatahdr, ppd.v2->tp_h.tp_len + sizeof(struct metadatahdr), ret, 0);
 
                 // Frame has been used, release the buffer space
                 v2_rx_user_ready(ppd.raw);

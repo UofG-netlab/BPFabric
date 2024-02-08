@@ -4,24 +4,28 @@ message Header {
     enum Type {
         HELLO = 0;
 
-        INSTALL_REQUEST = 1;
-        INSTALL_REPLY = 2;
+        FUNCTION_ADD_REQUEST = 1;
+        FUNCTION_ADD_REPLY = 2;
+        FUNCTION_REMOVE_REQUEST = 3;
+        FUNCTION_REMOVE_REPLY = 4;
+        FUNCTION_LIST_REQUEST = 5;
+        FUNCTION_LIST_REPLY = 6;
 
-        TABLES_LIST_REQUEST = 3;
-        TABLES_LIST_REPLY = 4;
-        TABLE_LIST_REQUEST = 5;
-        TABLE_LIST_REPLY = 6;
+        TABLES_LIST_REQUEST = 7;
+        TABLES_LIST_REPLY = 8;
+        TABLE_LIST_REQUEST = 9;
+        TABLE_LIST_REPLY = 10;
 
-        TABLE_ENTRY_GET_REQUEST = 7;
-        TABLE_ENTRY_GET_REPLY = 8;
-        TABLE_ENTRY_INSERT_REQUEST = 9;
-        TABLE_ENTRY_INSERT_REPLY = 10;
-        TABLE_ENTRY_DELETE_REQUEST = 11;
-        TABLE_ENTRY_DELETE_REPLY = 12;
+        TABLE_ENTRY_GET_REQUEST = 11;
+        TABLE_ENTRY_GET_REPLY = 12;
+        TABLE_ENTRY_INSERT_REQUEST = 13;
+        TABLE_ENTRY_INSERT_REPLY = 14;
+        TABLE_ENTRY_DELETE_REQUEST = 15;
+        TABLE_ENTRY_DELETE_REPLY = 16;
 
-        PACKET_IN = 13;
-        PACKET_OUT = 14;
+        PACKET_IN = 17;
+        PACKET_OUT = 18;
 
-        NOTIFY = 15;
+        NOTIFY = 19;
     }
 }

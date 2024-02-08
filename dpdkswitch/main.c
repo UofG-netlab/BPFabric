@@ -41,6 +41,7 @@
 #include "ubpf.h"
 #include "agent.h"
 #include "ebpf_consts.h"
+#include "ebpf_packet.h"
 
 static volatile bool force_quit;
 
@@ -116,9 +117,6 @@ static uint64_t timer_period = 10; /* default period is 10 seconds */
 static uint64_t dpid = 0;
 static char *controller = "127.0.0.1:9000";
 
-/* */
-ubpf_jit_fn ubpf_fn = NULL;
-
 /* Print out statistics on packets dropped */
 static void
 print_stats(void)
@@ -184,14 +182,14 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
 		port_statistics[dst_port].tx += sent;
 }
 
-void pkt_transmit(struct rte_mbuf *m, int len, uint32_t port, int flags)
+void pkt_transmit(struct rte_mbuf *m, int len, uint64_t target, int flags)
 {
 	unsigned int i;
 
 	uint8_t *mtod = rte_pktmbuf_mtod(m, uint8_t *);
 	struct metadatahdr *metadata = (struct metadatahdr *)(mtod - sizeof(struct metadatahdr));
 
-	switch (port)
+	switch (target & OPCODE_MASK)
 	{
 	case FLOOD:
 		for (i = 0; i < RTE_MAX_ETHPORTS; i++)
@@ -219,20 +217,21 @@ void pkt_transmit(struct rte_mbuf *m, int len, uint32_t port, int flags)
 		rte_pktmbuf_free(m);
 		break;
 
+	case PORT:
+		rte_eth_tx_buffer(target & VALUE_MASK, 0, tx_buffer[target & VALUE_MASK], m);
+
+	case NEXT:
 	case DROP:
+	default:
 		rte_pktmbuf_free(m);
 		break;
-
-	default:
-		// l2fwd_send_packet(m, port);
-		rte_eth_tx_buffer(port, 0, tx_buffer[port], m);
 	}
 }
 
 /* The agent calls the transmit method with a struct metadatahdr* however the dpdk switch expect a mbuf
    for the time being allocate a mbuf dynamically.
 */
-void transmit(struct metadatahdr *buf, int len, uint32_t port, int flags)
+void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
 {
 	struct rte_mbuf *mbuf = rte_pktmbuf_alloc(l2fwd_pktmbuf_pool);
 
@@ -241,7 +240,7 @@ void transmit(struct metadatahdr *buf, int len, uint32_t port, int flags)
 	mbuf->data_len = (uint16_t)len;
 	mbuf->pkt_len = (uint16_t)len;
 
-	pkt_transmit(mbuf, len, port, flags);
+	pkt_transmit(mbuf, len, target, flags);
 }
 
 /* >8 End of simple forward. */
@@ -322,7 +321,7 @@ l2fwd_main_loop(void)
 					/* do this only on main core */
 					if (lcore_id == rte_get_main_lcore())
 					{
-						// print_stats();
+						print_stats();
 						/* reset the timer */
 						timer_tsc = 0;
 					}
@@ -367,15 +366,8 @@ l2fwd_main_loop(void)
 				metadatahdr->length = (uint16_t)m->data_len;
 
 				/* Here we have the packet and we can do whatever we want with it */
-				if (ubpf_fn != NULL)
-				{
-					uint64_t ret = ubpf_fn(metadatahdr, m->data_len + sizeof(struct metadatahdr));
-					pkt_transmit(m, m->data_len, (uint32_t)ret, 0);
-				}
-				else
-				{
-					pkt_transmit(m, m->data_len, DROP, 0);
-				}
+				uint64_t ret = pipeline_exec(metadatahdr, m->data_len + sizeof(struct metadatahdr));
+				pkt_transmit(m, m->data_len, ret, 0);
 			}
 		}
 		/* >8 End of read packet from RX queues. */
@@ -960,7 +952,7 @@ int main(int argc, char **argv)
 	struct agent_options opts = {
 		.dpid = dpid,
 		.controller = controller};
-	agent_start(&ubpf_fn, (tx_packet_fn)transmit, &opts);
+	agent_start((tx_packet_fn)transmit, &opts);
 
 	ret = 0;
 	/* launch per-lcore init on every lcore */

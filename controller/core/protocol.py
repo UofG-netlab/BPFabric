@@ -9,6 +9,12 @@ FLOOD      = 0xfffffffd
 CONTROLLER = 0xfffffffe
 DROP       = 0xffffffff
 
+PORT = 0x00
+FLOOD = 0x01 << 32
+CONTROLLER = 0x02 << 32
+DROP = 0x03 << 32
+NEXT = 0x04 << 32
+
 class eBPFFactory(protocol.Factory):
     def __init__(self, application):
         self.application = application
@@ -21,8 +27,14 @@ PacketHeader = namedtuple('PacketHeader', ['type', 'length'])
 class eBPFProtocol(protocol.Protocol):
     _message_type_to_object = {
         Header.HELLO: Hello,
-        Header.INSTALL_REQUEST: InstallRequest,
-        Header.INSTALL_REPLY: InstallReply,
+
+        Header.FUNCTION_ADD_REQUEST: FunctionAddRequest,
+        Header.FUNCTION_ADD_REPLY: FunctionAddReply,
+        Header.FUNCTION_REMOVE_REQUEST: FunctionRemoveRequest,
+        Header.FUNCTION_REMOVE_REPLY: FunctionRemoveReply,
+        Header.FUNCTION_LIST_REQUEST: FunctionListRequest,
+        Header.FUNCTION_LIST_REPLY: FunctionListReply,
+
         Header.TABLES_LIST_REQUEST: TablesListRequest,
         Header.TABLES_LIST_REPLY: TablesListReply,
         Header.TABLE_LIST_REQUEST: TableListRequest,

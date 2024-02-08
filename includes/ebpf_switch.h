@@ -3,10 +3,13 @@
 
 #include "ebpf_consts.h"
 #include "ebpf_functions.h"
+#include "ebpf_packet.h"
+#include <linux/bpf.h>
 
 #define SEC(NAME) __attribute__((section(NAME), used))
 
-struct bpf_map_def {
+struct bpf_map_def
+{
     unsigned int type;
     unsigned int key_size;
     unsigned int value_size;

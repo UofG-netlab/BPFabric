@@ -5,7 +5,7 @@
 #include "arraymap.h"
 #include "hashtab.h"
 
-#define MAX_MAPS 64
+#define MAX_MAPS 128
 
 struct bpf_map *bpf_maps[MAX_MAPS] = {0};
 
@@ -63,6 +63,13 @@ int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int
     }
 
     return map_idx;
+}
+
+void bpf_free_map(int map)
+{
+    struct bpf_map *m = bpf_maps[map];
+    m->ops->map_free(m);
+    bpf_maps[map] = NULL;
 }
 
 int bpf_update_elem(int map, void *key, void *value, unsigned long long flags)

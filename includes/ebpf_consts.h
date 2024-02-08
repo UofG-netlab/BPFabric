@@ -1,25 +1,23 @@
 #ifndef __EBPF_SWITCH_CONSTS_H
 #define __EBPF_SWITCH_CONSTS_H
 
-#include <linux/bpf.h>
-#include <linux/if_ether.h>
-#include <stdint.h>
+/** Send the packet to a specific port */
+#define PORT 0x00ULL
 
-#define FLOOD      0xfffffffd
-#define CONTROLLER 0xfffffffe
-#define DROP       0xffffffff
+/** Flood the packet to all other ports */
+#define FLOOD (0x01ULL << 32)
 
-struct metadatahdr { // limited to the size available between the TPACKET_V2 header and the tp_mac payload
-    uint32_t in_port;
-    uint32_t sec;
-    uint32_t nsec;
-    uint16_t length;
-} __attribute__((packed));
+/** Send the packet to the controller */
+#define CONTROLLER (0x02ULL << 32)
 
+/** Drop the packet */
+#define DROP (0x03ULL << 32)
 
-struct packet {
-    struct metadatahdr metadata;
-    struct ethhdr eth;
-};
+/** Send the packet to the next pipeline stage */
+#define NEXT (0x04ULL << 32)
+
+#define OPCODE_MASK (0xffffffffULL << 32)
+
+#define VALUE_MASK 0xffffffff
 
 #endif

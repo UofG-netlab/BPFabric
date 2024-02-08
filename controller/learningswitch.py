@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import struct
 
 from core import eBPFCoreApplication, set_event_handler, FLOOD
 from core.packets import *
@@ -11,7 +10,7 @@ class LearningSwitchApplication(eBPFCoreApplication):
 
         with open('../examples/learningswitch.o', 'rb') as f:
             print("Installing the eBPF ELF")
-            connection.send(InstallRequest(elf=f.read()))
+            connection.send(InstallRequest(name="learningswitch", index=0, elf=f.read()))
 
 if __name__ == '__main__':
     LearningSwitchApplication().run()

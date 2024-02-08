@@ -11,8 +11,8 @@ from core.packets import *
 
 # The intro message to show at the top when running the program
 banner = "-" * 80 + """
-    eBPF Switch Controller Command Line Interface - Netlab 2016
-    Simon Jouet <simon.jouet@glasgow.ac.uk> - University of Glasgow
+    eBPF Switch Controller Command Line Interface - Netlab 2024
+    Simon Jouet <simon.jouet@gmail.com> - University of Glasgow
 """ + '-' * 80 + '\n'
 
 def tabulate(rows, headers=None):
@@ -46,23 +46,51 @@ def tabulate(rows, headers=None):
     print(row_format.format(*row_delim))
 
 class SwitchTableCli(cmd.Cmd):
-    def __init__(self, connection, table_name):
+    def __init__(self, connection, function_id, table_name):
         cmd.Cmd.__init__(self)
         self.connection = connection
+        self.function_id = function_id
         self.table_name = table_name
 
     def do_list(self, line):
-        self.connection.send(TableListRequest(table_name=self.table_name))
+        self.connection.send(TableListRequest(index=self.function_id, table_name=self.table_name))
 
     def do_get(self, line):
-        self.connection.send(TableEntryGetRequest(table_name=self.table_name, key=bytes.fromhex(line)))
+        self.connection.send(TableEntryGetRequest(index=self.function_id, table_name=self.table_name, key=bytes.fromhex(line)))
 
     def do_update(self, line):
         args = line.split()
-        self.connection.send(TableEntryInsertRequest(table_name=self.table_name, key=bytes.fromhex(args[0]), value=bytes.fromhex(args[1])))
+        if len(args) != 2:
+            print("update <hex:key> <hex:value>")
+            return
+
+        self.connection.send(TableEntryInsertRequest(index=self.function_id, table_name=self.table_name, key=bytes.fromhex(args[0]), value=bytes.fromhex(args[1])))
 
     def do_delete(self, line):
-        self.connection.send(TableEntryDeleteRequest(table_name=self.table_name, key=bytes.fromhex(line)))
+        self.connection.send(TableEntryDeleteRequest(index=self.function_id, table_name=self.table_name, key=bytes.fromhex(line)))
+
+    def emptyline(self):
+         self.do_help(None)
+
+class SwitchTablesCli(cmd.Cmd):
+    def __init__(self, connection, function_id: int):
+        cmd.Cmd.__init__(self)
+        self.connection = connection
+        self.function_id = function_id
+
+    def do_list(self, line):
+        self.connection.send(TablesListRequest(index=self.function_id))
+
+    def default(self, line: str) -> None:
+        args = line.split(maxsplit=1)
+
+        if len(args) == 0:
+            cmd.Cmd.default(self, line)
+        else:
+            try:
+                SwitchTableCli(self.connection, self.function_id, args[0]).onecmd(args[1] if len(args) > 1 else '')
+            except ValueError:
+                cmd.Cmd.default(self, line)
 
     def emptyline(self):
          self.do_help(None)
@@ -72,25 +100,42 @@ class SwitchCLI(cmd.Cmd):
         cmd.Cmd.__init__(self)
         self.connection = connection
 
-    def do_tables(self, line):
-        self.connection.send(TablesListRequest())
+    def do_list(self, line: str):
+        self.connection.send(FunctionListRequest())
 
-    def do_table(self, line):
+    def do_add(self, line: str) -> None:
         args = line.split()
-        if len(args) == 0:
-            print('Missing table name')
+
+        # 1 add 0 test ../examples/learningswitch.o
+        if len(args) != 3:
+            print("invalid")
             return
+        
+        index, name, path = args
 
-        SwitchTableCli(self.connection, args[0]).onecmd(' '.join(args[1:]))
-
-    def do_install(self, path):
         if not os.path.isfile(path):
             print('Invalid file path')
             return
 
         with open(path, 'rb') as f:
             elf = f.read()
-            self.connection.send(InstallRequest(elf=elf))
+            self.connection.send(FunctionAddRequest(name=name, index=int(index), elf=elf))
+
+    def do_remove(self, line: str) -> None:
+        self.connection.send(FunctionRemoveRequest(index=int(line)))
+
+    def do_table(self, line: str) -> None:
+        args = line.split(maxsplit=1)
+
+        if len(args) == 0:
+            cmd.Cmd.default(self, line)
+        else:
+            try:
+                function_id = int(args[0], 16)
+
+                SwitchTablesCli(self.connection, function_id).onecmd(args[1] if len(args) > 1 else '')
+            except ValueError:
+                cmd.Cmd.default(self, line)
 
     def emptyline(self):
          self.do_help(None)
@@ -126,8 +171,8 @@ class MainCLI(cmd.Cmd):
     def emptyline(self):
          pass
 
-    def do_EOF(self, line):
-        return True
+    # def do_EOF(self, line):
+    #     return True
 
 class eBPFCLIApplication(eBPFCoreApplication):
     """
@@ -180,8 +225,27 @@ class eBPFCLIApplication(eBPFCoreApplication):
 
     @set_event_handler(Header.PACKET_IN)
     def packet_in(self, connection, pkt):
-	    print(f"\n[{connection.dpid}] Received packet in {pkt.data.hex()}")
+        print(f"\n[{connection.dpid}] Received packet in {pkt.data.hex()}")
 
+    @set_event_handler(Header.FUNCTION_LIST_REPLY)
+    def function_list_reply(self, connection, pkt):
+        tabulate([ (e.index or 0, e.name, e.counter or 0) for e in pkt.entries ], headers=['index', 'name', 'counter'])
+
+    @set_event_handler(Header.FUNCTION_ADD_REPLY)
+    def function_add_reply(self, connection, pkt):
+        if pkt.status == FunctionAddReply.FunctionAddStatus.INVALID_STAGE:
+            print("Cannot add a function at this index")
+        elif pkt.status == FunctionAddReply.FunctionAddStatus.INVALID_FUNCTION:
+            print("Unable to install this function")
+        else:
+            print("Function has been installed")
+
+    @set_event_handler(Header.FUNCTION_REMOVE_REPLY)
+    def function_remove_reply(self, connection, pkt):
+        if pkt.status == FunctionAddReply.FunctionAddStatus.INVALID_STAGE:
+            print("Cannot remove a function at this index")
+        else:
+            print("Function has been removed")
 
 if __name__ == '__main__':
     eBPFCLIApplication().run()

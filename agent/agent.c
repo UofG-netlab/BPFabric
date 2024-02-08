@@ -17,12 +17,13 @@
 
 #include "Header.pb-c.h"
 #include "Hello.pb-c.h"
-#include "Install.pb-c.h"
+#include "Function.pb-c.h"
 #include "Table.pb-c.h"
 #include "Packet.pb-c.h"
 #include "Notify.pb-c.h"
 
 #include "agent.h"
+#include "ebpf_consts.h"
 
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -32,28 +33,48 @@
 #endif
 
 #define HEADER_LENGTH 4
+#define PIPELINE_STAGES 32
 
+/* Controller Packet header format. */
 struct header
 {
     uint16_t type;
     uint16_t length;
 };
 
-static sig_atomic_t sigint = 0;
-
+/* Handler function for controller messages */
 typedef int (*handler)(void *buffer, struct header *header);
 
+/* Single stage of the execution pipeline for packet processing. */
+struct stage
+{
+    struct ubpf_vm *vm;
+    char name[32];
+    ubpf_jit_fn exec;
+    uint64_t counter; // number of packets that have passed through this stage
+};
+
+/* Execution pipeline for packet processing. */
+struct stage pipeline[PIPELINE_STAGES] = {0};
+
+/* Agent configuration */
 struct agent
 {
     int fd;
-    ubpf_jit_fn *ubpf_fn;
     tx_packet_fn transmit;
-
     struct agent_options *options;
 } agent;
 
-struct ubpf_vm *vm;
+/* Interrupt signal for terminating the program. */
+static sig_atomic_t sigint = 0;
 
+/**
+ * @brief Initialise a packet and create the header for a packet of type `type` and length `len`
+ *
+ * @param type the type of the packet to create
+ * @param len the length of the packet excluding the header
+ * @return void* the packet with the header as a preamble
+ */
 void *create_packet(int type, int len)
 {
     uint16_t *header = (uint16_t *)malloc(HEADER_LENGTH + len);
@@ -61,404 +82,6 @@ void *create_packet(int type, int len)
     header[1] = htons(len);
 
     return header;
-}
-
-void send_hello()
-{
-    Hello hello = HELLO__INIT;
-    hello.version = 1;
-    hello.dpid = agent.options->dpid;
-
-    //
-    int packet_len = hello__get_packed_size(&hello);
-    void *packet = create_packet(HEADER__TYPE__HELLO, packet_len);
-    hello__pack(&hello, packet + HEADER_LENGTH);
-
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-    free(packet);
-}
-
-int recv_hello(void *buffer, struct header *header)
-{
-    Hello *hello;
-
-    hello = hello__unpack(NULL, header->length, buffer);
-    int len = hello__get_packed_size(hello);
-    hello__free_unpacked(hello, NULL);
-
-    return len;
-}
-
-#if !__x86_64__
-// Same prototype for JIT and interpretation
-uint64_t ebpf_exec(void *mem, size_t mem_len)
-{
-    return ubpf_exec(vm, mem, mem_len);
-}
-#endif
-
-int recv_install(void *buffer, struct header *header)
-{
-    InstallRequest *request;
-
-    request = install_request__unpack(NULL, header->length, buffer);
-    int len = install_request__get_packed_size(request);
-
-    //
-    int err;
-    char *errmsg;
-    err = ubpf_load_elf(vm, request->elf.data, request->elf.len, &errmsg);
-
-    if (err != 0)
-    {
-        printf("Error message: %s\n", errmsg);
-        free(errmsg);
-    }
-
-// On x86-64 architectures use the JIT compiler, otherwise fallback to the interpreter
-#if __x86_64__
-    ubpf_jit_fn ebpfprog = ubpf_compile(vm, &errmsg);
-#else
-    ubpf_jit_fn ebpfprog = ebpf_exec;
-#endif
-
-    if (ebpfprog == NULL)
-    {
-        printf("Error JIT %s\n", errmsg);
-        free(errmsg);
-    }
-
-    *(agent.ubpf_fn) = ebpfprog;
-
-    // TODO should send a InstallReply
-
-    //
-    install_request__free_unpacked(request, NULL);
-    return len;
-}
-
-int recv_tables_list_request(void *buffer, struct header *header)
-{
-    printf("listing tables\n");
-    TablesListRequest *request;
-    request = tables_list_request__unpack(NULL, header->length, buffer);
-    int len = tables_list_request__get_packed_size(request);
-    // TODO should free pkt memory
-
-    // Reply
-    TableDefinition **entries;
-    entries = malloc(sizeof(TableDefinition *) * TABLE_MAX_ENTRIES); // NOTE: allocate TABLE_MAX_ENTRIES as we don't know the number of entries in the table
-
-    //
-    int n_entries = 0;
-    char table_name[32] = {0};
-    struct table_entry *tab_entry;
-
-    int tables = ubpf_get_tables(vm);
-    while (bpf_get_next_key(tables, table_name, table_name) == 0)
-    {
-        bpf_lookup_elem(tables, table_name, &tab_entry);
-
-        entries[n_entries] = malloc(sizeof(TableDefinition));
-        table_definition__init(entries[n_entries]);
-
-        // not the best way, copy twice the table name, on lookup and to insert the entry
-        entries[n_entries]->table_name = malloc(strlen(table_name) + 1);
-        strcpy(entries[n_entries]->table_name, table_name);
-
-        entries[n_entries]->table_type = tab_entry->type;
-        entries[n_entries]->key_size = tab_entry->key_size;
-        entries[n_entries]->value_size = tab_entry->value_size;
-        entries[n_entries]->max_entries = tab_entry->max_entries;
-
-        n_entries++;
-    }
-
-    TablesListReply reply = TABLES_LIST_REPLY__INIT;
-    reply.n_entries = n_entries;
-    reply.entries = entries;
-
-    int packet_len = tables_list_reply__get_packed_size(&reply);
-    void *packet = create_packet(HEADER__TYPE__TABLES_LIST_REPLY, packet_len);
-
-    tables_list_reply__pack(&reply, packet + HEADER_LENGTH);
-
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-
-    // house keeping
-    free(packet);
-    int i;
-    for (i = 0; i < n_entries; i++)
-    {
-        free(entries[i]->table_name);
-        free(entries[i]);
-    }
-
-    free(entries);
-
-    return len;
-}
-
-int recv_table_list_request(void *buffer, struct header *header)
-{
-    TableListRequest *request;
-    request = table_list_request__unpack(NULL, header->length, buffer);
-    int len = table_list_request__get_packed_size(request);
-
-    // TODO should free pkt memory
-
-    // Reply
-    TableListReply reply = TABLE_LIST_REPLY__INIT;
-
-    //
-    char table_name[32] = {0};
-    strncpy(table_name, request->table_name, 31);
-    struct table_entry *tab_entry;
-
-    int tables = ubpf_get_tables(vm);
-    int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
-
-    TableDefinition tableEntry = TABLE_DEFINITION__INIT;
-
-    if (ret == -1)
-    {
-        reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
-    }
-    else
-    {
-        reply.status = TABLE_STATUS__SUCCESS;
-
-        tableEntry.table_name = request->table_name;
-        tableEntry.table_type = tab_entry->type;
-        tableEntry.key_size = tab_entry->key_size;
-        tableEntry.value_size = tab_entry->value_size;
-        tableEntry.max_entries = tab_entry->max_entries;
-
-        reply.entry = &tableEntry;
-
-        int n_items = 0;
-        int item_size;
-        unsigned char *items;
-
-        if (tab_entry->type == BPF_MAP_TYPE_HASH)
-        {
-            item_size = tab_entry->key_size + tab_entry->value_size;
-            items = calloc(tab_entry->max_entries, item_size);
-
-            unsigned char *key = items;
-            unsigned char *next_key = items;
-            unsigned char *value;
-
-            while (bpf_get_next_key(tab_entry->fd, key, next_key) == 0)
-            {
-                bpf_lookup_elem(tab_entry->fd, next_key, &value);
-                memcpy(next_key + tab_entry->key_size, value, tab_entry->value_size);
-
-                n_items++;
-                key = next_key;
-                next_key = items + n_items * item_size;
-            }
-        }
-
-        else if (tab_entry->type == BPF_MAP_TYPE_ARRAY)
-        {
-            uint32_t key = 0;
-            n_items = tab_entry->max_entries;
-            item_size = tab_entry->value_size;
-
-            void *data;
-            items = malloc(n_items * item_size);
-            bpf_lookup_elem(tab_entry->fd, &key, &data);
-            memcpy(items, data, n_items * item_size);
-        }
-
-        reply.n_items = n_items;
-        // reply.has_n_items = 1;
-
-        reply.items.len = n_items * item_size;
-        reply.items.data = items;
-        // reply.has_items = 1; // Why are optional fields not working?
-
-        // TODO housekeeping
-    }
-
-    int packet_len = table_list_reply__get_packed_size(&reply);
-    void *packet = create_packet(HEADER__TYPE__TABLE_LIST_REPLY, packet_len);
-
-    table_list_reply__pack(&reply, packet + HEADER_LENGTH);
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-
-    free(packet);
-    free(reply.items.data);
-
-    return len;
-}
-
-int recv_table_entry_get_request(void *buffer, struct header *header)
-{
-    TableEntryGetRequest *request;
-    request = table_entry_get_request__unpack(NULL, header->length, buffer);
-    int len = table_entry_get_request__get_packed_size(request);
-
-    //
-    TableEntryGetReply reply = TABLE_ENTRY_GET_REPLY__INIT;
-
-    char table_name[32] = {0};
-    strncpy(table_name, request->table_name, 31);
-    struct table_entry *tab_entry;
-    int tables = ubpf_get_tables(vm);
-    int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
-
-    if (ret == -1)
-    {
-        reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
-    }
-    else
-    {
-        reply.key = request->key;
-        reply.value.len = tab_entry->value_size;
-
-        ret = bpf_lookup_elem(tab_entry->fd, request->key.data, &reply.value.data);
-
-        if (ret == -1)
-        {
-            reply.status = TABLE_STATUS__ENTRY_NOT_FOUND;
-        }
-        else
-        {
-            reply.status = TABLE_STATUS__SUCCESS;
-        }
-    }
-
-    int packet_len = table_entry_get_reply__get_packed_size(&reply);
-    void *packet = create_packet(HEADER__TYPE__TABLE_ENTRY_GET_REPLY, packet_len);
-
-    table_entry_get_reply__pack(&reply, packet + HEADER_LENGTH);
-
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-    free(packet);
-
-    return len;
-}
-
-int recv_table_entry_insert_request(void *buffer, struct header *header)
-{
-    TableEntryInsertRequest *request;
-    request = table_entry_insert_request__unpack(NULL, header->length, buffer);
-    int len = table_entry_insert_request__get_packed_size(request);
-
-    //
-    TableEntryInsertReply reply = TABLE_ENTRY_INSERT_REPLY__INIT;
-
-    char table_name[32] = {0};
-    strncpy(table_name, request->table_name, 31);
-    struct table_entry *tab_entry;
-    int tables = ubpf_get_tables(vm);
-    int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
-
-    if (ret == -1)
-    {
-        reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
-    }
-    else
-    {
-        ret = bpf_update_elem(tab_entry->fd, request->key.data, request->value.data, 0); // flags not handled for now
-        reply.status = TABLE_STATUS__SUCCESS;
-        // NOTE: how to handle the insert return code?
-    }
-
-    int packet_len = table_entry_insert_reply__get_packed_size(&reply);
-    void *packet = create_packet(HEADER__TYPE__TABLE_ENTRY_INSERT_REPLY, packet_len);
-
-    table_entry_insert_reply__pack(&reply, packet + HEADER_LENGTH);
-
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-
-    free(packet);
-
-    return len;
-}
-
-int recv_table_entry_delete_request(void *buffer, struct header *header)
-{
-    TableEntryDeleteRequest *request;
-    request = table_entry_delete_request__unpack(NULL, header->length, buffer);
-    int len = table_entry_delete_request__get_packed_size(request);
-
-    //
-    TableEntryDeleteReply reply = TABLE_ENTRY_DELETE_REPLY__INIT;
-
-    char table_name[32] = {0};
-    strncpy(table_name, request->table_name, 31);
-    struct table_entry *tab_entry;
-    int tables = ubpf_get_tables(vm);
-    int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
-
-    if (ret == -1)
-    {
-        reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
-    }
-    else
-    {
-        ret = bpf_delete_elem(tab_entry->fd, request->key.data);
-        if (ret == -1)
-        {
-            reply.status = TABLE_STATUS__ENTRY_NOT_FOUND;
-        }
-        else
-        {
-            reply.status = TABLE_STATUS__SUCCESS;
-        }
-    }
-
-    int packet_len = table_entry_delete_reply__get_packed_size(&reply);
-    void *packet = create_packet(HEADER__TYPE__TABLE_ENTRY_DELETE_REPLY, packet_len);
-
-    table_entry_delete_reply__pack(&reply, packet + HEADER_LENGTH);
-
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-
-    free(packet);
-
-    return len;
-}
-
-int recv_packet_out(void *buffer, struct header *header)
-{
-    PacketOut *request;
-    request = packet_out__unpack(NULL, header->length, buffer);
-    int len = packet_out__get_packed_size(request);
-
-    agent.transmit(request->data.data, request->data.len, request->out_port, 1);
-
-    return len;
-}
-
-const handler handlers[] = {
-    [HEADER__TYPE__HELLO] = recv_hello,
-    [HEADER__TYPE__INSTALL_REQUEST] = recv_install,
-    [HEADER__TYPE__TABLES_LIST_REQUEST] = recv_tables_list_request,
-    [HEADER__TYPE__TABLE_LIST_REQUEST] = recv_table_list_request,
-    [HEADER__TYPE__TABLE_ENTRY_GET_REQUEST] = recv_table_entry_get_request,
-    [HEADER__TYPE__TABLE_ENTRY_INSERT_REQUEST] = recv_table_entry_insert_request,
-    [HEADER__TYPE__TABLE_ENTRY_DELETE_REQUEST] = recv_table_entry_delete_request,
-    [HEADER__TYPE__PACKET_OUT] = recv_packet_out,
-};
-
-int agent_packetin(void *pkt, int len)
-{
-    PacketIn reply = PACKET_IN__INIT;
-    reply.data.len = len;
-    reply.data.data = pkt;
-
-    int packet_len = packet_in__get_packed_size(&reply);
-    void *packet = create_packet(HEADER__TYPE__PACKET_IN, packet_len);
-
-    packet_in__pack(&reply, packet + HEADER_LENGTH);
-
-    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
-
-    return 0;
 }
 
 uint64_t bpf_debug(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
@@ -515,6 +138,580 @@ uint64_t bpf_delete(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t
     return bpf_delete_elem(r1, (void *)r2);
 }
 
+/**
+ * @brief Send the hello handshake message to the controllerm advertising of connection and providing version and dpid.
+ */
+void send_hello()
+{
+    Hello hello = HELLO__INIT;
+    hello.version = 1;
+    hello.dpid = agent.options->dpid;
+
+    //
+    int packet_len = hello__get_packed_size(&hello);
+    void *packet = create_packet(HEADER__TYPE__HELLO, packet_len);
+    hello__pack(&hello, packet + HEADER_LENGTH);
+
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+    free(packet);
+}
+
+int recv_hello(void *buffer, struct header *header)
+{
+    Hello *hello;
+
+    hello = hello__unpack(NULL, header->length, buffer);
+    int len = hello__get_packed_size(hello);
+    hello__free_unpacked(hello, NULL);
+
+    return len;
+}
+
+int recv_function_add(void *buffer, struct header *header)
+{
+    FunctionAddRequest *request;
+
+    request = function_add_request__unpack(NULL, header->length, buffer);
+    int len = function_add_request__get_packed_size(request);
+
+    FunctionAddReply reply = FUNCTION_ADD_REPLY__INIT;
+    reply.status = FUNCTION_ADD_REPLY__FUNCTION_ADD_STATUS__OK;
+
+    // Validate the input
+    if (request->index >= PIPELINE_STAGES)
+    {
+        reply.status = FUNCTION_ADD_REPLY__FUNCTION_ADD_STATUS__INVALID_STAGE;
+    }
+    else
+    {
+
+        // If there is an existing stage in the pipeline at this position free it
+        struct stage *stage = &pipeline[request->index];
+        if (stage->vm)
+        {
+            // Destroy the VM for this program
+            ubpf_destroy(stage->vm);
+
+            // Clear the previous state of the stage
+            memset(stage, 0, sizeof(struct stage));
+        }
+
+        // Create the new VM
+        stage->vm = ubpf_create();
+        strncpy(stage->name, request->name, 32);
+        stage->name[31] = '\0';
+        ubpf_toggle_bounds_check(stage->vm, false);
+
+        // Register the map functions
+        ubpf_register(stage->vm, 1, "bpf_map_lookup_elem", bpf_lookup);
+        ubpf_register(stage->vm, 2, "bpf_map_update_elem", bpf_update);
+        ubpf_register(stage->vm, 3, "bpf_map_delete_elem", bpf_delete);
+        ubpf_register(stage->vm, 31, "bpf_notify", bpf_notify);
+        ubpf_register(stage->vm, 32, "bpf_debug", bpf_debug);
+
+        // Load the stage function
+        int err;
+        char *errmsg;
+        err = ubpf_load_elf(stage->vm, request->elf.data, request->elf.len, &errmsg);
+
+        if (err != 0)
+        {
+            reply.status = FUNCTION_ADD_REPLY__FUNCTION_ADD_STATUS__INVALID_FUNCTION;
+            printf("Error message: %s\n", errmsg);
+            free(errmsg);
+        }
+        else
+        {
+// On x86-64 architectures use the JIT compiler, otherwise fallback to the interpreter
+#if __x86_64__
+            stage->exec = ubpf_compile(stage->vm, &errmsg);
+#endif
+
+            if (stage->exec == NULL)
+            {
+                reply.status = FUNCTION_ADD_REPLY__FUNCTION_ADD_STATUS__INVALID_FUNCTION;
+
+                printf("Error JIT %s\n", errmsg);
+                free(errmsg);
+            }
+        }
+    }
+
+    // Send install reply
+    int packet_len = function_add_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__FUNCTION_ADD_REPLY, packet_len);
+    function_add_reply__pack(&reply, packet + HEADER_LENGTH);
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    // Free the resources
+    function_add_request__free_unpacked(request, NULL);
+    free(packet);
+
+    return len;
+}
+
+int recv_function_remove(void *buffer, struct header *header)
+{
+    FunctionRemoveRequest *request;
+    FunctionRemoveReply reply = FUNCTION_REMOVE_REPLY__INIT;
+
+    request = function_remove_request__unpack(NULL, header->length, buffer);
+    int len = function_remove_request__get_packed_size(request);
+
+    reply.status = FUNCTION_REMOVE_REPLY__FUNCTION_REMOVE_STATUS__INVALID_STAGE;
+    if (request->index <= PIPELINE_STAGES && pipeline[request->index].vm != NULL)
+    {
+        struct stage *stage = &pipeline[request->index];
+        ubpf_destroy(stage->vm);
+
+        // Clear the previous state of the stage
+        memset(stage, 0, sizeof(struct stage));
+
+        reply.status = FUNCTION_REMOVE_REPLY__FUNCTION_REMOVE_STATUS__OK;
+    }
+
+    int packet_len = function_remove_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__FUNCTION_REMOVE_REPLY, packet_len);
+    function_remove_reply__pack(&reply, packet + HEADER_LENGTH);
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    function_remove_request__free_unpacked(request, NULL);
+    free(packet);
+
+    return len;
+}
+
+int recv_function_list(void *buffer, struct header *header)
+{
+    FunctionListRequest *request;
+    request = function_list_request__unpack(NULL, header->length, buffer);
+    int len = function_list_request__get_packed_size(request);
+
+    // Reply
+    FunctionListReply reply = FUNCTION_LIST_REPLY__INIT;
+    FunctionListEntry *entries[PIPELINE_STAGES];
+    reply.entries = entries;
+
+    int i = 0;
+    for (i = 0; i < PIPELINE_STAGES; i++)
+    {
+        struct stage *stage = &pipeline[i];
+
+        if (stage->vm)
+        {
+            FunctionListEntry *entry = malloc(sizeof(FunctionListEntry));
+            function_list_entry__init(entry);
+
+            entry->name = stage->name;
+            entry->index = i;
+            entry->counter = stage->counter;
+
+            entries[reply.n_entries++] = entry;
+        }
+    }
+
+    int packet_len = function_list_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__FUNCTION_LIST_REPLY, packet_len);
+
+    function_list_reply__pack(&reply, packet + HEADER_LENGTH);
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    // Cleanup
+    for (i = 0; i < reply.n_entries; i++)
+    {
+        free(entries[i]);
+    }
+
+    function_list_request__free_unpacked(request, NULL);
+    free(packet);
+
+    return len;
+}
+
+int recv_tables_list_request(void *buffer, struct header *header)
+{
+    TablesListRequest *request;
+    TablesListReply reply = TABLES_LIST_REPLY__INIT;
+
+    request = tables_list_request__unpack(NULL, header->length, buffer);
+    int len = tables_list_request__get_packed_size(request);
+
+    // Reply
+    TableDefinition *entries[TABLE_MAX_ENTRIES];
+
+    reply.status = TABLE_STATUS__STAGE_NOT_FOUND;
+    reply.entries = entries;
+
+    if (request->index <= PIPELINE_STAGES && pipeline[request->index].vm != NULL)
+    {
+        char table_name[32] = {0};
+        struct table_entry *tab_entry;
+        struct stage *stage = &pipeline[request->index];
+
+        int tables = ubpf_get_tables(stage->vm);
+        while (bpf_get_next_key(tables, table_name, table_name) == 0)
+        {
+            bpf_lookup_elem(tables, table_name, &tab_entry);
+
+            TableDefinition *def = malloc(sizeof(TableDefinition));
+            table_definition__init(def);
+
+            def->table_name = malloc(strlen(table_name) + 1);
+            strcpy(def->table_name, table_name);
+
+            def->table_type = tab_entry->type;
+            def->key_size = tab_entry->key_size;
+            def->value_size = tab_entry->value_size;
+            def->max_entries = tab_entry->max_entries;
+
+            entries[reply.n_entries++] = def;
+        }
+    }
+
+    int packet_len = tables_list_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__TABLES_LIST_REPLY, packet_len);
+
+    tables_list_reply__pack(&reply, packet + HEADER_LENGTH);
+
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    // house keeping
+    int i;
+    for (i = 0; i < reply.n_entries; i++)
+    {
+        free(entries[i]->table_name);
+        free(entries[i]);
+    }
+
+    free(packet);
+    tables_list_request__free_unpacked(request, NULL);
+
+    return len;
+}
+
+int recv_table_list_request(void *buffer, struct header *header)
+{
+    TableListRequest *request;
+    TableListReply reply = TABLE_LIST_REPLY__INIT;
+
+    request = table_list_request__unpack(NULL, header->length, buffer);
+    int len = table_list_request__get_packed_size(request);
+
+    reply.status = TABLE_STATUS__STAGE_NOT_FOUND;
+
+    if (request->index <= PIPELINE_STAGES && pipeline[request->index].vm != NULL)
+    {
+        struct stage *stage = &pipeline[request->index];
+
+        // Create the key for the lookup
+        char table_name[32] = {0};
+        strncpy(table_name, request->table_name, 31);
+        struct table_entry *tab_entry;
+
+        // Find the table referencing the tables
+        int tables = ubpf_get_tables(stage->vm);
+        int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
+
+        //
+        if (ret == -1)
+        {
+            reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
+        }
+        else
+        {
+            TableDefinition tableEntry = TABLE_DEFINITION__INIT;
+
+            reply.status = TABLE_STATUS__SUCCESS;
+
+            tableEntry.table_name = request->table_name;
+            tableEntry.table_type = tab_entry->type;
+            tableEntry.key_size = tab_entry->key_size;
+            tableEntry.value_size = tab_entry->value_size;
+            tableEntry.max_entries = tab_entry->max_entries;
+
+            reply.entry = &tableEntry;
+
+            int item_size;
+            unsigned char *items;
+
+            if (tab_entry->type == BPF_MAP_TYPE_HASH)
+            {
+                item_size = tab_entry->key_size + tab_entry->value_size;
+                items = calloc(tab_entry->max_entries, item_size);
+
+                unsigned char *key = items;
+                unsigned char *next_key = items;
+                unsigned char *value;
+
+                while (bpf_get_next_key(tab_entry->fd, key, next_key) == 0)
+                {
+                    bpf_lookup_elem(tab_entry->fd, next_key, &value);
+                    memcpy(next_key + tab_entry->key_size, value, tab_entry->value_size);
+
+                    reply.n_items++;
+                    key = next_key;
+                    next_key = items + reply.n_items * item_size;
+                }
+            }
+
+            else if (tab_entry->type == BPF_MAP_TYPE_ARRAY)
+            {
+                uint32_t key = 0;
+                reply.n_items = tab_entry->max_entries;
+                item_size = tab_entry->value_size;
+
+                void *data;
+                items = malloc(reply.n_items * item_size);
+                bpf_lookup_elem(tab_entry->fd, &key, &data);
+                memcpy(items, data, reply.n_items * item_size);
+            }
+
+            reply.items.len = reply.n_items * item_size;
+            reply.items.data = items;
+        }
+    }
+
+    int packet_len = table_list_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__TABLE_LIST_REPLY, packet_len);
+
+    table_list_reply__pack(&reply, packet + HEADER_LENGTH);
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    free(packet);
+    free(reply.items.data);
+    table_list_request__free_unpacked(request, NULL);
+
+    return len;
+}
+
+int recv_table_entry_get_request(void *buffer, struct header *header)
+{
+    TableEntryGetRequest *request;
+    TableEntryGetReply reply = TABLE_ENTRY_GET_REPLY__INIT;
+
+    request = table_entry_get_request__unpack(NULL, header->length, buffer);
+    int len = table_entry_get_request__get_packed_size(request);
+
+    reply.status = TABLE_STATUS__STAGE_NOT_FOUND;
+
+    if (request->index <= PIPELINE_STAGES && pipeline[request->index].vm != NULL)
+    {
+        struct stage *stage = &pipeline[request->index];
+
+        char table_name[32] = {0};
+        strncpy(table_name, request->table_name, 31);
+        struct table_entry *tab_entry;
+
+        int tables = ubpf_get_tables(stage->vm);
+        int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
+
+        if (ret == -1)
+        {
+            reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
+        }
+        else
+        {
+            reply.key = request->key;
+            reply.value.len = tab_entry->value_size;
+
+            ret = bpf_lookup_elem(tab_entry->fd, request->key.data, &reply.value.data);
+
+            if (ret == -1)
+            {
+                reply.status = TABLE_STATUS__ENTRY_NOT_FOUND;
+            }
+            else
+            {
+                reply.status = TABLE_STATUS__SUCCESS;
+            }
+        }
+    }
+
+    int packet_len = table_entry_get_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__TABLE_ENTRY_GET_REPLY, packet_len);
+    table_entry_get_reply__pack(&reply, packet + HEADER_LENGTH);
+
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    free(packet);
+    table_entry_get_request__free_unpacked(request, NULL);
+
+    return len;
+}
+
+int recv_table_entry_insert_request(void *buffer, struct header *header)
+{
+    TableEntryInsertRequest *request;
+    TableEntryInsertReply reply = TABLE_ENTRY_INSERT_REPLY__INIT;
+
+    request = table_entry_insert_request__unpack(NULL, header->length, buffer);
+    int len = table_entry_insert_request__get_packed_size(request);
+
+    reply.status = TABLE_STATUS__STAGE_NOT_FOUND;
+
+    if (request->index <= PIPELINE_STAGES && pipeline[request->index].vm != NULL)
+    {
+        struct stage *stage = &pipeline[request->index];
+
+        char table_name[32] = {0};
+        strncpy(table_name, request->table_name, 31);
+        struct table_entry *tab_entry;
+        int tables = ubpf_get_tables(stage->vm);
+        int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
+
+        if (ret == -1)
+        {
+            reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
+        }
+        else
+        {
+            ret = bpf_update_elem(tab_entry->fd, request->key.data, request->value.data, 0);
+            reply.status = TABLE_STATUS__SUCCESS;
+        }
+    }
+
+    int packet_len = table_entry_insert_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__TABLE_ENTRY_INSERT_REPLY, packet_len);
+
+    table_entry_insert_reply__pack(&reply, packet + HEADER_LENGTH);
+
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    free(packet);
+    table_entry_insert_request__free_unpacked(request, NULL);
+
+    return len;
+}
+
+int recv_table_entry_delete_request(void *buffer, struct header *header)
+{
+    TableEntryDeleteRequest *request;
+    TableEntryDeleteReply reply = TABLE_ENTRY_DELETE_REPLY__INIT;
+
+    request = table_entry_delete_request__unpack(NULL, header->length, buffer);
+    int len = table_entry_delete_request__get_packed_size(request);
+
+    reply.status = TABLE_STATUS__STAGE_NOT_FOUND;
+
+    if (request->index <= PIPELINE_STAGES && pipeline[request->index].vm != NULL)
+    {
+        struct stage *stage = &pipeline[request->index];
+
+        char table_name[32] = {0};
+        strncpy(table_name, request->table_name, 31);
+        struct table_entry *tab_entry;
+        int tables = ubpf_get_tables(stage->vm);
+        int ret = bpf_lookup_elem(tables, table_name, &tab_entry);
+
+        if (ret == -1)
+        {
+            reply.status = TABLE_STATUS__TABLE_NOT_FOUND;
+        }
+        else
+        {
+            ret = bpf_delete_elem(tab_entry->fd, request->key.data);
+            if (ret == -1)
+            {
+                reply.status = TABLE_STATUS__ENTRY_NOT_FOUND;
+            }
+            else
+            {
+                reply.status = TABLE_STATUS__SUCCESS;
+            }
+        }
+    }
+
+    int packet_len = table_entry_delete_reply__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__TABLE_ENTRY_DELETE_REPLY, packet_len);
+
+    table_entry_delete_reply__pack(&reply, packet + HEADER_LENGTH);
+
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    free(packet);
+    table_entry_delete_request__free_unpacked(request, NULL);
+
+    return len;
+}
+
+int recv_packet_out(void *buffer, struct header *header)
+{
+    PacketOut *request;
+    request = packet_out__unpack(NULL, header->length, buffer);
+    int len = packet_out__get_packed_size(request);
+
+    agent.transmit(request->data.data, request->data.len, request->out_port, 1);
+
+    packet_out__free_unpacked(request, NULL);
+
+    return len;
+}
+
+const handler handlers[] = {
+    [HEADER__TYPE__HELLO] = recv_hello,
+    [HEADER__TYPE__FUNCTION_ADD_REQUEST] = recv_function_add,
+    [HEADER__TYPE__FUNCTION_REMOVE_REQUEST] = recv_function_remove,
+    [HEADER__TYPE__FUNCTION_LIST_REQUEST] = recv_function_list,
+
+    [HEADER__TYPE__TABLES_LIST_REQUEST] = recv_tables_list_request,
+
+    [HEADER__TYPE__TABLE_LIST_REQUEST] = recv_table_list_request,
+    [HEADER__TYPE__TABLE_ENTRY_GET_REQUEST] = recv_table_entry_get_request,
+    [HEADER__TYPE__TABLE_ENTRY_INSERT_REQUEST] = recv_table_entry_insert_request,
+    [HEADER__TYPE__TABLE_ENTRY_DELETE_REQUEST] = recv_table_entry_delete_request,
+    [HEADER__TYPE__PACKET_OUT] = recv_packet_out,
+};
+
+int agent_packetin(void *pkt, size_t len)
+{
+    PacketIn reply = PACKET_IN__INIT;
+    reply.data.len = len;
+    reply.data.data = pkt;
+
+    int packet_len = packet_in__get_packed_size(&reply);
+    void *packet = create_packet(HEADER__TYPE__PACKET_IN, packet_len);
+
+    packet_in__pack(&reply, packet + HEADER_LENGTH);
+
+    send(agent.fd, packet, HEADER_LENGTH + packet_len, MSG_NOSIGNAL);
+
+    return 0;
+}
+
+uint64_t pipeline_exec(void *pkt, size_t len)
+{
+    int i;
+    uint64_t ret = DROP;
+
+    for (i = 0; i < PIPELINE_STAGES; i++)
+    {
+        struct stage *stage = &pipeline[i];
+
+        // Skip if this stage is empty
+        if (stage->vm != NULL)
+        {
+#if __x86_64__
+            ret = stage->exec(pkt, len);
+#else
+            ret = ubpf_exec(vm, mem, mem_len);
+#endif
+
+            stage->counter++;
+
+            // If it's anything other than NEXT then we made a decision. Stop executing the pipeline
+            if ((ret & OPCODE_MASK) != NEXT)
+            {
+                break;
+            }
+
+            // By default we will go to the next stage but we can skip to a further stage if necessary
+            i += ret & VALUE_MASK;
+        }
+    }
+
+    return ret;
+}
+
 void *agent_task()
 {
     //
@@ -535,18 +732,6 @@ void *agent_task()
         perror("error resolving server address");
         pthread_exit(NULL);
     }
-
-    //
-    vm = ubpf_create();
-
-    ubpf_toggle_bounds_check(vm, false);
-
-    // Register the map functions
-    ubpf_register(vm, 1, "bpf_map_lookup_elem", bpf_lookup);
-    ubpf_register(vm, 2, "bpf_map_update_elem", bpf_update);
-    ubpf_register(vm, 3, "bpf_map_delete_elem", bpf_delete);
-    ubpf_register(vm, 31, "bpf_notify", bpf_notify);
-    ubpf_register(vm, 32, "bpf_debug", bpf_debug);
 
     while (likely(!sigint))
     {
@@ -583,6 +768,8 @@ void *agent_task()
                         header.length = ntohs(head[1]);
                         offset += HEADER_LENGTH;
 
+                        // printf("received packet type: %d length %d\n", header.type, header.length);
+
                         handler h = handlers[header.type];
                         offset += h(buf + offset, &header);
                     }
@@ -600,12 +787,11 @@ void *agent_task()
     pthread_exit(NULL);
 }
 
-int agent_start(ubpf_jit_fn *ubpf_fn, tx_packet_fn tx_fn, struct agent_options *opts)
+int agent_start(tx_packet_fn tx_fn, struct agent_options *opts)
 {
     int err;
     pthread_t agent_thread;
 
-    agent.ubpf_fn = ubpf_fn;
     agent.transmit = tx_fn;
     agent.options = opts;
 

@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-message InstallRequest {
-    bytes elf = 1;
-}
-
-message InstallReply {}

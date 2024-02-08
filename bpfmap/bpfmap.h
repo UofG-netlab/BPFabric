@@ -98,6 +98,7 @@ struct bpf_array
 };
 
 int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries);
+void bpf_free_map(int map);
 int bpf_update_elem(int map, void *key, void *value, unsigned long long flags);
 int bpf_lookup_elem(int map, void *key, void *value);
 int bpf_delete_elem(int map, void *key);

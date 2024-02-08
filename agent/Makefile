@@ -1,4 +1,4 @@
-CFLAGS := -I../ubpf/inc -I../protocol/src/c -I../bpfmap
+CFLAGS := -g -I../ubpf/inc -I../protocol/src/c -I../bpfmap -I../includes
 
 all: agent.o
 

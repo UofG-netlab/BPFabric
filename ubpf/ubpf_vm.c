@@ -92,6 +92,17 @@ void ubpf_destroy(struct ubpf_vm *vm)
     {
         munmap(vm->jitted, vm->jitted_size);
     }
+
+    // Free the allocated tables
+    char table_name[32] = {0};
+    struct table_entry *tab_entry;
+    while (bpf_get_next_key(vm->tables, table_name, table_name) == 0)
+    {
+        bpf_lookup_elem(vm->tables, table_name, &tab_entry);
+        bpf_free_map(tab_entry->fd);
+    }
+    bpf_free_map(vm->tables);
+
     free(vm->insts);
     free(vm->ext_funcs);
     free(vm->ext_func_names);

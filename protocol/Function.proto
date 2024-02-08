@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+message FunctionAddRequest {
+    string name = 1;
+    uint32 index = 2;
+    bytes elf = 3;
+}
+
+message FunctionAddReply {
+    enum FunctionAddStatus {
+        OK = 0;
+        INVALID_STAGE = 1;
+        INVALID_FUNCTION = 2;   
+    }
+
+    FunctionAddStatus status = 1;
+}
+
+message FunctionRemoveRequest {
+    uint32 index = 1;
+}
+
+message FunctionRemoveReply {
+    enum FunctionRemoveStatus {
+        OK = 0;
+        INVALID_STAGE = 1;
+    }
+
+    FunctionRemoveStatus status = 1;
+}
+
+message FunctionListEntry {
+    string name = 1;
+    uint32 index = 2;
+    uint64 counter = 3;
+}
+
+message FunctionListRequest {
+}
+
+message FunctionListReply {
+    repeated FunctionListEntry entries = 1;
+}
