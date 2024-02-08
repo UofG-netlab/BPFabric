@@ -4,6 +4,7 @@
 #include "bpfmap.h"
 #include "arraymap.h"
 #include "hashtab.h"
+#include "lpm_trie.h"
 
 #define MAX_MAPS 128
 
@@ -25,9 +26,17 @@ const struct bpf_map_ops bpf_map_types[] = {
         .map_lookup_elem = array_map_lookup_elem,
         .map_update_elem = array_map_update_elem,
         .map_delete_elem = array_map_delete_elem,
+    },
+    [BPF_MAP_TYPE_LPM_TRIE] = {
+        .map_alloc = trie_alloc,
+        .map_free = trie_free,
+        .map_get_next_key = trie_get_next_key,
+        .map_lookup_elem = trie_lookup_elem,
+        .map_update_elem = trie_update_elem,
+        .map_delete_elem = trie_delete_elem,
     }};
 
-int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries)
+int bpf_create_map(enum bpf_map_type map_type, uint32_t key_size, uint32_t value_size, uint32_t max_entries, uint64_t flags)
 {
     union bpf_attr attr;
 
@@ -37,6 +46,7 @@ int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int
     attr.key_size = key_size;
     attr.value_size = value_size;
     attr.max_entries = max_entries;
+    attr.map_flags = flags;
 
     //
     const struct bpf_map_ops *map_type_ops = &bpf_map_types[map_type];

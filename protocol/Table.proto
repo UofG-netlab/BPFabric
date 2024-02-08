@@ -3,15 +3,16 @@ syntax = "proto3";
 message TableDefinition {
     enum TableType {
         UNSPEC = 0;
-        HASH   = 1;
-        ARRAY  = 2;
+        HASH = 1;
+        ARRAY = 2;
+        LPM_TRIE = 11;
     }
 
-    string table_name    = 1;
+    string table_name = 1;
     TableType table_type = 2;
-    uint32 key_size      = 3;
-    uint32 value_size    = 4;
-    uint32 max_entries   = 5;
+    uint32 key_size = 3;
+    uint32 value_size = 4;
+    uint32 max_entries = 5;
 }
 
 enum TableStatus {

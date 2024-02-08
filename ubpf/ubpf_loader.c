@@ -215,8 +215,7 @@ int ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **e
                 if (ret == -1)
                 {
                     tab_entry = calloc(1, sizeof(struct table_entry));
-                    tab_entry->fd = bpf_create_map(map_def.type, map_def.key_size, map_def.value_size, map_def.max_entries);
-                    printf("created map %s with fd %d\n", map_name, tab_entry->fd);
+                    tab_entry->fd = bpf_create_map(map_def.type, map_def.key_size, map_def.value_size, map_def.max_entries, map_def.map_flags);
 
                     if (tab_entry->fd == -1)
                     {

@@ -29,9 +29,10 @@
 
 enum bpf_map_type
 {
-    BPF_MAP_TYPE_UNSPEC,
-    BPF_MAP_TYPE_HASH,
-    BPF_MAP_TYPE_ARRAY,
+    BPF_MAP_TYPE_UNSPEC = 0,
+    BPF_MAP_TYPE_HASH = 1,
+    BPF_MAP_TYPE_ARRAY = 2,
+    BPF_MAP_TYPE_LPM_TRIE = 11,
 };
 
 union bpf_attr
@@ -97,8 +98,9 @@ struct bpf_array
     };
 };
 
-int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries);
+int bpf_create_map(enum bpf_map_type map_type, uint32_t key_size, uint32_t value_size, uint32_t max_entries, uint64_t flags);
 void bpf_free_map(int map);
+
 int bpf_update_elem(int map, void *key, void *value, unsigned long long flags);
 int bpf_lookup_elem(int map, void *key, void *value);
 int bpf_delete_elem(int map, void *key);

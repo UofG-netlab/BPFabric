@@ -434,7 +434,7 @@ int recv_table_list_request(void *buffer, struct header *header)
             int item_size;
             unsigned char *items;
 
-            if (tab_entry->type == BPF_MAP_TYPE_HASH)
+            if (tab_entry->type == BPF_MAP_TYPE_HASH || tab_entry->type == BPF_MAP_TYPE_LPM_TRIE)
             {
                 item_size = tab_entry->key_size + tab_entry->value_size;
                 items = calloc(tab_entry->max_entries, item_size);

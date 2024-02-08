@@ -75,7 +75,7 @@ ubpf_create(void)
     vm->error_printf = fprintf;
 
     /* meta table containing reference to the other tables, 32 characters key, int fd value, max 64 entries */
-    vm->tables = bpf_create_map(BPF_MAP_TYPE_HASH, TABLE_NAME_MAX_LENGTH, sizeof(struct table_entry), TABLE_MAX_ENTRIES);
+    vm->tables = bpf_create_map(BPF_MAP_TYPE_HASH, TABLE_NAME_MAX_LENGTH, sizeof(struct table_entry), TABLE_MAX_ENTRIES, 0);
     if (vm->tables < 0)
     {
         perror("Error creating bpf map");

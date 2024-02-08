@@ -10,6 +10,7 @@ all:: libbpfmap.a
 bpfmap_mods += bpfmap
 bpfmap_mods += arraymap
 bpfmap_mods += hashtab
+bpfmap_mods += lpm_trie
 bpfmap_mods += libghthash/hash_functions
 bpfmap_mods += libghthash/hash_table
 

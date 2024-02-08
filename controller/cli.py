@@ -196,7 +196,7 @@ class eBPFCLIApplication(eBPFCoreApplication):
     def table_list_reply(self, connection, pkt):
         entries = []
 
-        if pkt.entry.table_type == TableDefinition.HASH:
+        if pkt.entry.table_type in [TableDefinition.HASH, TableDefinition.LPM_TRIE]:
             item_size = pkt.entry.key_size + pkt.entry.value_size
             fmt = "{}s{}s".format(pkt.entry.key_size, pkt.entry.value_size)
 
