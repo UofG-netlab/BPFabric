@@ -91,6 +91,14 @@ uint64_t bpf_debug(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t 
     return 0;
 }
 
+uint64_t bpf_mirror(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
+{
+    // void *buf, int len, uint64_t out_port, int flags
+    agent.transmit((void *)r2, r3, r1, 0);
+
+    return 0;
+}
+
 uint64_t bpf_notify(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
 {
     int id = (int)r1;
@@ -206,6 +214,7 @@ int recv_function_add(void *buffer, struct header *header)
         ubpf_register(stage->vm, 1, "bpf_map_lookup_elem", bpf_lookup);
         ubpf_register(stage->vm, 2, "bpf_map_update_elem", bpf_update);
         ubpf_register(stage->vm, 3, "bpf_map_delete_elem", bpf_delete);
+        ubpf_register(stage->vm, 30, "bpf_mirror", bpf_mirror);
         ubpf_register(stage->vm, 31, "bpf_notify", bpf_notify);
         ubpf_register(stage->vm, 32, "bpf_debug", bpf_debug);
 

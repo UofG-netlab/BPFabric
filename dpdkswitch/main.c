@@ -166,22 +166,6 @@ print_stats(void)
 	fflush(stdout);
 }
 
-/* Simple forward. 8< */
-static void
-l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
-{
-	unsigned dst_port;
-	int sent;
-	struct rte_eth_dev_tx_buffer *buffer;
-
-	dst_port = l2fwd_dst_ports[portid];
-
-	buffer = tx_buffer[dst_port];
-	sent = rte_eth_tx_buffer(dst_port, 0, buffer, m);
-	if (sent)
-		port_statistics[dst_port].tx += sent;
-}
-
 void pkt_transmit(struct rte_mbuf *m, int len, uint64_t target, int flags)
 {
 	unsigned int i;
@@ -219,6 +203,7 @@ void pkt_transmit(struct rte_mbuf *m, int len, uint64_t target, int flags)
 
 	case PORT:
 		rte_eth_tx_buffer(target & VALUE_MASK, 0, tx_buffer[target & VALUE_MASK], m);
+		break;
 
 	case NEXT:
 	case DROP:
@@ -228,12 +213,20 @@ void pkt_transmit(struct rte_mbuf *m, int len, uint64_t target, int flags)
 	}
 }
 
-/* The agent calls the transmit method with a struct metadatahdr* however the dpdk switch expect a mbuf
-   for the time being allocate a mbuf dynamically.
-*/
+/*
+ * The agent calls the transmit method with a struct metadatahdr* however the dpdk switch expect a mbuf
+ * for the time being allocate a mbuf dynamically.
+ * This is also used for mirroring which also mem_cpy the packet or a portion of the packet
+ */
 void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
 {
 	struct rte_mbuf *mbuf = rte_pktmbuf_alloc(l2fwd_pktmbuf_pool);
+
+	if (!mbuf)
+	{
+		// Couldn't allocate the mbuf, drop
+		return;
+	}
 
 	rte_memcpy(rte_pktmbuf_mtod(mbuf, uint8_t *) - sizeof(struct metadatahdr), buf, len);
 
@@ -241,6 +234,7 @@ void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
 	mbuf->pkt_len = (uint16_t)len;
 
 	pkt_transmit(mbuf, len, target, flags);
+	rte_pktmbuf_free(mbuf);
 }
 
 /* >8 End of simple forward. */

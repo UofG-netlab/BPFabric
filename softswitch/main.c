@@ -494,7 +494,7 @@ void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
         // HACK, the packets are only sent after poll() however this
         // can be called asynchronously on packet from the controller and
         // therefore delay the packet transmission until the next packet is received
-        if (flags)
+        if (flags == 1)
         {
             for (i = 0; i < dataplane.port_count; i++)
             {
