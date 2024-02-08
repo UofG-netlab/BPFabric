@@ -10,7 +10,6 @@ class eBPFHost(Host):
         for off in ["rx", "tx", "sg"]:
             cmd = "/sbin/ethtool --offload {} {} off".format(self.defaultIntf(), off)
             self.cmd(cmd)
-        self.setDefaultRoute('dev {}'.format(self.defaultIntf())) #Is that really the best way to do it?
 
         return r
 
@@ -38,13 +37,11 @@ class eBPFSwitch(Switch):
 
         args = [self.switch_path]
 
-        args.extend(['--dpid', str(self.dpid)])
+        args.extend(['-p', '-i', '--dpid', str(self.dpid)])
 
         for port, intf in self.intfs.items():
             if not intf.IP():
                 args.append(intf.name)
-
-        # print(' '.join(args) + ' &')
 
         self.proc = subprocess.Popen(args)
 

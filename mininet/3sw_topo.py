@@ -6,7 +6,7 @@ from mininet.cli import CLI
 
 from eBPFSwitch import eBPFSwitch, eBPFHost
 
-class SingleSwitchTopo(Topo):
+class ThreeSwitchTopo(Topo):
     def __init__(self, **opts):
         # Initialize topology and default options
         Topo.__init__(self, **opts)
@@ -18,16 +18,17 @@ class SingleSwitchTopo(Topo):
         self.addLink(aggSwitch1, coreSwitch)
         self.addLink(aggSwitch2, coreSwitch)
 
-        for h in range(4):
-            host = self.addHost('h%d' % (h + 1),
-                                ip = "10.0.%d.10/24" % h,
-                                mac = '00:04:00:00:00:%02x' %h)
+        for i, sw in enumerate([aggSwitch1, aggSwitch2]):
+            # Add 2 hosts per switch
+            for h in range(1, 3):
+                host = self.addHost(f'h_{i}_{h}',
+                                    ip = f'10.0.{i}.{h}/8',
+                                    mac = '00:04:00:00:00:%02x'.format(h))
 
-            switch = aggSwitch1 if h < 2 else aggSwitch2
-            self.addLink(host, switch)
+                self.addLink(host, sw)
 
 def main():
-    topo = SingleSwitchTopo()
+    topo = ThreeSwitchTopo()
     net = Mininet(topo = topo, host = eBPFHost, switch = eBPFSwitch, controller = None)
 
     net.start()
