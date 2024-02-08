@@ -12,9 +12,13 @@
 #include <inttypes.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
+#include <linux/ethtool.h>
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
 #include <linux/ip.h>
+#include <linux/types.h>
+#include <linux/sockios.h>
+#include <sys/ioctl.h>
 #include <argp.h>
 
 #include <time.h>
@@ -27,13 +31,19 @@
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
 #endif
+
 #ifndef unlikely
 #define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
 #ifndef __aligned_tpacket
 #define __aligned_tpacket __attribute__((aligned(TPACKET_ALIGNMENT)))
 #endif
+
 #ifndef __align_tpacket
 #define __align_tpacket(x) __attribute__((aligned(TPACKET_ALIGN(x))))
 #endif
@@ -61,8 +71,6 @@ struct dataplane
     struct port *ports;
 } dataplane;
 
-static sig_atomic_t sigint = 0;
-
 union frame_map
 {
     struct
@@ -73,7 +81,13 @@ union frame_map
     void *raw;
 };
 
-static void sighandler(int num)
+static sig_atomic_t sigint = 0;
+
+// List of offload functionalities to disable on the interface, Generic Receive Offload, RX/TX checksumming, Scatter Gather
+const int offload_fns[] = {ETHTOOL_SGRO, ETHTOOL_SRXCSUM, ETHTOOL_STXCSUM, ETHTOOL_SSG};
+
+static void
+sighandler(int num)
 {
     sigint = 1;
 }
@@ -106,7 +120,7 @@ static int setup_ring(int fd, struct ring *ring, int ring_type)
     return 0;
 }
 
-static int setup_socket(struct port *port, char *netdev)
+static int setup_socket(struct port *port, char *netdev, int promiscuous)
 {
     int err, i, fd, ifindex, v = TPACKET_V2;
     struct sockaddr_ll ll;
@@ -117,7 +131,6 @@ static int setup_socket(struct port *port, char *netdev)
         perror("interface");
         exit(1);
     }
-    // printf("interface index %d\n", ifindex);
 
     // Opens a raw socket for this port
     fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
@@ -134,6 +147,35 @@ static int setup_socket(struct port *port, char *netdev)
     {
         perror("setsockopt");
         exit(1);
+    }
+
+    // Set the device in promiscuous mode
+    if (promiscuous)
+    {
+        struct packet_mreq mreq = {.mr_ifindex = ifindex, .mr_type = PACKET_MR_PROMISC};
+        if (setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) != 0)
+        {
+            perror("setsockopt");
+            exit(1);
+        }
+    }
+
+    // Disable offloading
+    struct ethtool_value ethv;
+    struct ifreq ifr;
+
+    strncpy(ifr.ifr_name, netdev, sizeof(ifr.ifr_name));
+    ifr.ifr_data = (void *)&ethv;
+
+    for (i = 0; i < ARRAY_SIZE(offload_fns); i++)
+    {
+        ethv.cmd = offload_fns[i];
+        ethv.data = 0;
+
+        if (ioctl(fd, SIOCETHTOOL, &ifr) < 0)
+        {
+            printf("%s failed to set SIOCETHTOOL ioctl: %s\n", netdev, strerror(errno));
+        }
     }
 
     // NOTE: disable qdisc, trivial performance improvement
@@ -275,9 +317,11 @@ static char doc[] = "eBPF-switch -- eBPF user space switch";
 static char args_doc[] = "interface1 interface2 [interface3 ...]";
 
 static struct argp_option options[] = {
-    {"verbose", 'v', 0, 0, "Produce verbose output"},
+    {"verbose", 'v', NULL, 0, "Produce verbose output"},
     {"dpid", 'd', "dpid", 0, "Datapath id of the switch"},
     {"controller", 'c', "address", 0, "Controller address default to 127.0.0.1:9000"},
+    {"promiscuous", 'p', NULL, OPTION_ARG_OPTIONAL, "Enable promiscuous mode"},
+    {"sigint", 'i', NULL, OPTION_ARG_OPTIONAL, "Disable sigint handler"},
     {0}};
 
 #define MAX_INTERFACES 255
@@ -290,6 +334,8 @@ struct arguments
     char *controller;
 
     int verbose;
+    int promiscuous;
+    int sigint;
 };
 
 static error_t
@@ -303,8 +349,16 @@ parse_opt(int key, char *arg, struct argp_state *state)
         arguments->verbose = 1;
         break;
 
+    case 'p':
+        arguments->promiscuous = 1;
+        break;
+
     case 'd':
         arguments->dpid = strtoull(arg, NULL, 10);
+        break;
+
+    case 'i':
+        arguments->sigint = 0;
         break;
 
     case 'c':
@@ -400,6 +454,7 @@ int main(int argc, char **argv)
     arguments.interface_count = 0;
     arguments.dpid = random_dpid();
     arguments.controller = "127.0.0.1:9000";
+    arguments.sigint = 1;
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
     /* */
@@ -410,8 +465,7 @@ int main(int argc, char **argv)
     /* */
     struct pollfd pfds[dataplane.port_count];
 
-    signal(SIGINT, sighandler);
-    // signal(SIGINT, voidhandler);
+    signal(SIGINT, arguments.sigint ? sighandler : voidhandler);
     signal(SIGKILL, sighandler);
 
     /* setup all the interfaces */
@@ -419,7 +473,7 @@ int main(int argc, char **argv)
     for (i = 0; i < dataplane.port_count; i++)
     {
         // Create the socket, allocate the tx and rx rings and create the frame io vectors
-        setup_socket(&dataplane.ports[i], arguments.interfaces[i]);
+        setup_socket(&dataplane.ports[i], arguments.interfaces[i], arguments.promiscuous);
 
         // Create the array of pollfd for poll()
         pfds[i].fd = dataplane.ports[i].fd;
@@ -432,9 +486,7 @@ int main(int argc, char **argv)
     printf("\n");
 
     /* */
-    struct agent_options options = {
-        .dpid = dataplane.dpid,
-        .controller = arguments.controller};
+    struct agent_options options = {.dpid = dataplane.dpid, .controller = arguments.controller};
 
     agent_start((tx_packet_fn)transmit, &options);
 
