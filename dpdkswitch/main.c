@@ -455,6 +455,7 @@ static const char short_options[] =
 	"q:" /* number of queues */
 	"T:" /* timer period */
 	"d:" /* dpid */
+	"c:" /* controller address */
 	;
 
 /* Parse the argument given in the command line of the application */
