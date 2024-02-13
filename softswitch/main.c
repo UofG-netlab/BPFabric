@@ -376,8 +376,7 @@ int tx_frame(struct port *port, void *data, int len)
     return -1; // Kernel not ready, dropping the packet
 }
 
-const char *argp_program_version = "ebpf-switch 0.1";
-const char *argp_program_bug_address = "<simon.jouet@glasgow.ac.uk>";
+const char *argp_program_version = "ebpf-switch 0.2";
 static char doc[] = "eBPF-switch -- eBPF user space switch";
 static char args_doc[] = "interface1 interface2 [interface3 ...]";
 
