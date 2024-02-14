@@ -41,6 +41,6 @@ uint64_t prog(struct packet *pkt)
         ewma_stat->count++;
     }
 
-    return NEXT + 1;
+    return NEXT;
 }
 char _license[] SEC("license") = "GPL";

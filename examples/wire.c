@@ -3,7 +3,8 @@
 
 uint64_t prog(struct packet *pkt)
 {
-  if (pkt->metadata.in_port == 0) {
+  if (pkt->metadata.in_port == 0)
+  {
     return 1;
   }
 
